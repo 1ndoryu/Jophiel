@@ -9,7 +9,8 @@ use Illuminate\Database\Eloquent\Model;
  * @package app\model
  *
  * @property int $sample_id
- * @property string $vector
+ * @property int $creator_id
+ * @property array $vector
  */
 class SampleVector extends Model
 {
@@ -19,6 +20,11 @@ class SampleVector extends Model
 
     protected $fillable = [
         'sample_id',
+        'creator_id',
         'vector',
+    ];
+
+    protected $casts = [
+        'vector' => 'array',
     ];
 }

@@ -2,6 +2,7 @@
 
 namespace app\commands;
 
+use app\model\UserFollow;
 use app\model\UserTasteProfile;
 use app\model\SampleVector;
 use app\model\UserInteraction;
@@ -22,11 +23,13 @@ class SeedCommand
         $usersCount = (int)($options['users'] ?? 50);
         $samplesCount = (int)($options['samples'] ?? 500);
         $interactionsCount = (int)($options['interactions'] ?? $samplesCount * 10); // Default a 10 interacciones por sample
+        $followsCount = $usersCount * 5; // Cada usuario sigue a 5 otros en promedio
 
         echo "Iniciando el proceso de seeding para Jophiel con la siguiente configuración:\n";
         echo " - Usuarios:         $usersCount\n";
         echo " - Samples:          $samplesCount\n";
         echo " - Interacciones:    $interactionsCount\n";
+        echo " - Seguimientos:     $followsCount\n";
 
         $faker = FakerFactory::create();
         $vectorizationService = new VectorizationService();
@@ -40,7 +43,7 @@ class SeedCommand
             $userIds[] = $i;
             $userProfiles[] = [
                 'user_id' => $i,
-                'taste_vector' => json_encode(array_fill(0, $vectorConfig['vector_dimension'], 0.0)),
+                'taste_vector' => array_fill(0, $vectorConfig['vector_dimension'], 0.0),
                 'updated_at' => Carbon::now(),
             ];
         }
@@ -54,13 +57,13 @@ class SeedCommand
         for ($i = 1; $i <= $samplesCount; $i++) {
             $sampleIds[] = $i;
             $metadata = $this->generateRealisticMetadata($faker, $vectorConfig);
-
             $vector = $vectorizationService->vectorize($metadata);
 
             $sampleVectors[] = [
                 'sample_id' => $i,
-                'vector' => json_encode($vector),
-                'created_at' => $faker->dateTimeThisYear(),
+                'creator_id' => $faker->randomElement($userIds),
+                'vector' => json_encode($vector), // Eloquent con insert masivo no usa casts, se necesita json_encode aquí
+                'created_at' => Carbon::instance($faker->dateTimeThisYear()),
                 'updated_at' => Carbon::now(),
             ];
         }
@@ -70,13 +73,7 @@ class SeedCommand
         // --- Generación de Interacciones ---
         echo "Generando $interactionsCount interacciones de usuarios...\n";
         $interactions = [];
-        $interactionTypes = [
-            'like' => 1.0,
-            'play' => 0.2,
-            'skip' => -0.1,
-            'follow' => 0.8,
-            'dislike' => -1.0
-        ];
+        $interactionTypes = ['like' => 1.0, 'play' => 0.2, 'skip' => -0.1, 'follow' => 0.8, 'dislike' => -1.0];
         $interactionKeys = array_keys($interactionTypes);
 
         for ($i = 0; $i < $interactionsCount; $i++) {
@@ -86,7 +83,7 @@ class SeedCommand
                 'sample_id' => $faker->randomElement($sampleIds),
                 'interaction_type' => $interactionType,
                 'weight' => $interactionTypes[$interactionType],
-                'created_at' => $faker->dateTimeThisYear(),
+                'created_at' => Carbon::instance($faker->dateTimeThisYear()),
             ];
         }
 
@@ -94,6 +91,25 @@ class SeedCommand
             UserInteraction::insert($chunk);
         }
         echo "Interacciones generadas.\n";
+
+        // --- Generación de Seguimientos (Follows) ---
+        echo "Generando $followsCount relaciones de seguimiento...\n";
+        $follows = [];
+        $uniqueFollows = [];
+        for ($i = 0; $i < $followsCount; $i++) {
+            $follower = $faker->randomElement($userIds);
+            $followed = $faker->randomElement($userIds);
+
+            if ($follower === $followed) continue; // Un usuario no puede seguirse a sí mismo
+            
+            $key = "$follower-$followed";
+            if (isset($uniqueFollows[$key])) continue; // Evitar duplicados
+
+            $follows[] = ['user_id' => $follower, 'followed_user_id' => $followed, 'created_at' => Carbon::now()];
+            $uniqueFollows[$key] = true;
+        }
+        UserFollow::insert($follows);
+        echo "Seguimientos generados.\n";
 
         echo "\n¡Seeding completado con éxito!\n";
     }

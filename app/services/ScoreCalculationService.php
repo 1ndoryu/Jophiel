@@ -23,14 +23,14 @@ class ScoreCalculationService
     /**
      * Calcula el ScoreFinal para un par usuario-sample.
      *
-     * @param UserTasteProfile $userProfile El perfil de gustos del usuario.
+     * @param array $userTasteVector El vector de gustos del usuario.
      * @param SampleVector $sampleVector El vector del sample.
      * @param array $userDefinitiveInteractions Un array de sample_id con los que el usuario ya ha interactuado de forma "definitiva" (like/dislike).
      * @param bool $isFollowingCreator Si el usuario sigue al creador del sample.
      * @return float
      */
     public function calculateFinalScore(
-        UserTasteProfile $userProfile,
+        array $userTasteVector,
         SampleVector $sampleVector,
         array $userDefinitiveInteractions,
         bool $isFollowingCreator
@@ -43,8 +43,8 @@ class ScoreCalculationService
 
         // 2. Factor de Similitud (Coseno)
         $similarityFactor = $this->calculateCosineSimilarity(
-            json_decode($userProfile->taste_vector, true),
-            json_decode($sampleVector->vector, true)
+            $userTasteVector,
+            $sampleVector->vector
         );
 
         // 3. Factor de Seguimiento
@@ -120,7 +120,7 @@ class ScoreCalculationService
      */
     private function calculatePenaltyFactor(int $sampleId, array $userDefinitiveInteractions): float
     {
-        // Usar un hash map (isset) es más rápido que in_array para listas grandes.
+        // Usar un hash map (isset en un array invertido) es más rápido que in_array para listas grandes.
         $interactionsMap = array_flip($userDefinitiveInteractions);
         if (isset($interactionsMap[$sampleId])) {
             return self::PENALTY_DEFINITIVE_INTERACTION;

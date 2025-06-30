@@ -10,7 +10,13 @@ class InstallerCommand
     {
         echo "Iniciando instalación del esquema de Jophiel...\n";
         try {
-            // Drop type if exists to allow re-running install
+            // Drop objects in reverse order of dependency
+            DB::connection()->statement('DROP TABLE IF EXISTS recommendation_cache CASCADE');
+            DB::connection()->statement('DROP TABLE IF EXISTS user_feed_recommendations CASCADE');
+            DB::connection()->statement('DROP TABLE IF EXISTS user_interactions CASCADE');
+            DB::connection()->statement('DROP TABLE IF EXISTS user_taste_profiles CASCADE');
+            DB::connection()->statement('DROP TABLE IF EXISTS sample_vectors CASCADE');
+            DB::connection()->statement('DROP TABLE IF EXISTS user_follows CASCADE');
             DB::connection()->statement('DROP TYPE IF EXISTS interaction_type CASCADE');
 
             $sql = $this->getInstallSql();
@@ -37,7 +43,7 @@ class InstallerCommand
 
         echo "Reiniciando tablas...\n";
         try {
-            DB::statement('TRUNCATE TABLE user_interactions, user_taste_profiles, sample_vectors, user_feed_recommendations, recommendation_cache RESTART IDENTITY');
+            DB::statement('TRUNCATE TABLE user_interactions, user_taste_profiles, sample_vectors, user_feed_recommendations, recommendation_cache, user_follows RESTART IDENTITY');
             echo "¡Tablas reiniciadas con éxito!\n";
         } catch (\Exception $e) {
             echo "Error durante el reinicio: " . $e->getMessage() . "\n";
@@ -51,15 +57,17 @@ CREATE TYPE interaction_type AS ENUM ('like', 'dislike', 'play', 'skip', 'follow
 
 CREATE TABLE sample_vectors (
     sample_id BIGINT PRIMARY KEY,
-    vector TEXT NOT NULL,
+    creator_id BIGINT NOT NULL,
+    vector JSONB NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+CREATE INDEX idx_sample_vectors_vector_gin ON sample_vectors USING GIN (vector);
 COMMENT ON TABLE sample_vectors IS 'Almacena el vector numérico (ADN) de cada sample de audio.';
 
 CREATE TABLE user_taste_profiles (
     user_id BIGINT PRIMARY KEY,
-    taste_vector TEXT NOT NULL,
+    taste_vector JSONB NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 COMMENT ON TABLE user_taste_profiles IS 'Almacena el vector de gustos agregado para cada usuario.';
@@ -94,6 +102,14 @@ CREATE TABLE recommendation_cache (
 );
 CREATE INDEX idx_recommendation_cache_expires_at ON recommendation_cache(expires_at);
 COMMENT ON TABLE recommendation_cache IS 'Caché para resultados costosos como \"samples similares\" o \"ideas para tableros\".';
+
+CREATE TABLE user_follows (
+    user_id BIGINT NOT NULL,
+    followed_user_id BIGINT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, followed_user_id)
+);
+COMMENT ON TABLE user_follows IS 'Registra qué usuarios siguen a qué creadores.';
 ";
     }
 }

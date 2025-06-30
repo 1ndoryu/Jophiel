@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
  * @package app\model
  *
  * @property int $user_id
- * @property string $taste_vector
+ * @property array $taste_vector
  */
 class UserTasteProfile extends Model
 {
@@ -23,5 +23,9 @@ class UserTasteProfile extends Model
     protected $fillable = [
         'user_id',
         'taste_vector',
+    ];
+
+    protected $casts = [
+        'taste_vector' => 'array',
     ];
 }
