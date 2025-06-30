@@ -43,7 +43,8 @@ class SeedCommand
             $userIds[] = $i;
             $userProfiles[] = [
                 'user_id' => $i,
-                'taste_vector' => array_fill(0, $vectorConfig['vector_dimension'], 0.0),
+                // CORRECCIÓN: Se debe codificar manualmente a JSON para inserciones masivas.
+                'taste_vector' => json_encode(array_fill(0, $vectorConfig['vector_dimension'], 0.0)),
                 'updated_at' => Carbon::now(),
             ];
         }

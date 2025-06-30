@@ -84,4 +84,48 @@ return [
             ]
         ],
     ],
+    // Canal de log para la Reacción Inmediata (Quick Update)
+    'quick-update' => [
+        'handlers' => [
+            [
+                'class' => Monolog\Handler\RotatingFileHandler::class,
+                'constructor' => [
+                    runtime_path() . '/logs/jophiel-quick-update.log',
+                    5,
+                    Monolog\Logger::DEBUG,
+                ],
+                'formatter' => [
+                    'class' => Monolog\Formatter\LineFormatter::class,
+                    'constructor' => [
+                        "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
+                        'Y-m-d H:i:s',
+                        true,
+                        true
+                    ],
+                ],
+            ]
+        ],
+    ],
+    // Canal de log para el test de Reacción Inmediata
+    'quick-update-test' => [
+        'handlers' => [
+            [
+                'class' => Monolog\Handler\RotatingFileHandler::class,
+                'constructor' => [
+                    runtime_path() . '/logs/jophiel-quick-update-test.log',
+                    2,
+                    Monolog\Logger::DEBUG,
+                ],
+                'formatter' => [
+                    'class' => Monolog\Formatter\LineFormatter::class,
+                    'constructor' => [
+                        "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
+                        'Y-m-d H:i:s',
+                        true,
+                        true
+                    ],
+                ],
+            ]
+        ],
+    ],
 ];

@@ -9,6 +9,7 @@ require_once __DIR__ . '/support/bootstrap.php';
 use app\commands\InstallerCommand;
 use app\commands\BatchCommand;
 use app\commands\SeedCommand;
+use app\commands\QuickUpdateTestCommand;
 
 $argv = $_SERVER['argv'];
 $command = $argv[1] ?? null;
@@ -26,13 +27,14 @@ if (!$command) {
     echo "Jophiel CLI Tool\n";
     echo "Uso: php jophiel <comando> [opciones]\n\n";
     echo "Comandos disponibles:\n";
-    echo "  db:install                Crea las tablas necesarias en la base de datos.\n";
-    echo "  db:reset                  Elimina todos los datos de las tablas de Jophiel.\n";
-    echo "  db:seed [opciones]        Puebla la BD con datos de prueba.\n";
-    echo "                            --users=50 --samples=500 --interactions=5000\n";
-    echo "  batch:run [opciones]      Ejecuta el proceso batch.\n";
-    echo "                            Sin opciones: ejecuta un ciclo sobre los datos existentes.\n";
-    echo "                            Con --users y --samples: ejecuta un benchmark completo (resetea la BD).\n";
+    echo "  db:install             Crea las tablas necesarias en la base de datos.\n";
+    echo "  db:reset               Elimina todos los datos de las tablas de Jophiel.\n";
+    echo "  db:seed [opciones]     Puebla la BD con datos de prueba.\n";
+    echo "                         --users=50 --samples=500 --interactions=5000\n";
+    echo "  batch:run [opciones]   Ejecuta el proceso batch.\n";
+    echo "                         Sin opciones: ejecuta un ciclo sobre los datos existentes.\n";
+    echo "                         Con --users y --samples: ejecuta un benchmark completo (resetea la BD).\n";
+    echo "  quick-update:test      Simula un 'like' y mide el tiempo de la actualización rápida del feed.\n";
     exit(1);
 }
 
@@ -53,6 +55,10 @@ switch ($command) {
 
     case 'batch:run':
         (new BatchCommand())->run($options);
+        break;
+    
+    case 'quick-update:test':
+        (new QuickUpdateTestCommand())->run($options);
         break;
 
     default:
