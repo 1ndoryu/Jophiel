@@ -10,7 +10,7 @@ global $argv;
 return [
     'webman' => [
         'handler' => Http::class,
-        'listen' => 'http://0.0.0.0:8787',
+        'listen' => 'http://0.0.0.0:8789',
         'count' => cpu_count() * 4,
         'user' => '',
         'group' => '',
@@ -47,5 +47,11 @@ return [
                 'enable_memory_monitor' => DIRECTORY_SEPARATOR === '/',
             ]
         ]
+    ],
+    // Proceso Batch para el motor de recomendaciones Jophiel
+    'jophiel-batch-process' => [
+        'handler' => \app\process\BatchProcess::class,
+        'reloadable' => false, // Es un proceso de fondo, no debería recargarse automáticamente
+        'constructor' => []
     ]
 ];

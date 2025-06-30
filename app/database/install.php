@@ -39,10 +39,12 @@ echo "CREATE TABLE user_interactions (
     sample_id BIGINT NOT NULL,
     interaction_type interaction_type NOT NULL,
     weight REAL NOT NULL, -- Ponderación de la interacción
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
 );\n";
 echo "CREATE INDEX idx_user_interactions_user_id ON user_interactions(user_id);\n";
 echo "CREATE INDEX idx_user_interactions_created_at ON user_interactions(created_at);\n";
+echo "CREATE INDEX idx_user_interactions_unprocessed ON user_interactions(id) WHERE processed_at IS NULL;\n";
 echo "COMMENT ON TABLE user_interactions IS 'Registro de todas las interacciones ponderadas de los usuarios con los samples.';\n\n";
 
 // --- Tabla: user_feed_recommendations ---

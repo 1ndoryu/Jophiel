@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
  * @property int $sample_id
  * @property string $interaction_type
  * @property float $weight
+ * @property string|null $processed_at
  */
 class UserInteraction extends Model
 {
@@ -26,5 +27,16 @@ class UserInteraction extends Model
         'sample_id',
         'interaction_type',
         'weight',
+        'processed_at',
+    ];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array
+     */
+    protected $casts = [
+        'processed_at' => 'datetime',
+        'weight' => 'float',
     ];
 }
