@@ -2,9 +2,9 @@
 
 namespace app\process;
 
-use app\helpers\LogHelper;
+use app\helper\LogHelper;
+use app\helper\PerformanceTracker;
 use app\services\RecommendationService;
-use Monolog\Logger;
 use Throwable;
 use Workerman\Timer;
 
@@ -40,13 +40,12 @@ class BatchProcess
     public function runCycle(): void
     {
         LogHelper::info('batch-process', 'Iniciando nuevo ciclo de proceso batch...');
-        $startTime = microtime(true);
 
         try {
-            $this->recommendationService->runBatchProcess();
-
-            $elapsed = round(microtime(true) - $startTime, 4);
-            LogHelper::info('batch-process', "Ciclo de proceso batch completado en {$elapsed} segundos.");
+            PerformanceTracker::measure('total_batch_cycle', function () {
+                $this->recommendationService->runBatchProcess();
+            });
+            LogHelper::info('batch-process', "Ciclo de proceso batch completado.");
         } catch (Throwable $e) {
             LogHelper::error('batch-process', 'Error crítico en el ciclo de proceso batch.', [
                 'message' => $e->getMessage(),

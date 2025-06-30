@@ -2,7 +2,8 @@
 
 namespace app\services;
 
-use app\helpers\LogHelper;
+use app\helper\LogHelper;
+use app\helper\PerformanceTracker;
 use app\model\SampleVector;
 use app\model\UserFeedRecommendation;
 use app\model\UserInteraction;
@@ -32,27 +33,41 @@ class RecommendationService
     public function runBatchProcess(): void
     {
         LogHelper::info('batch-process', 'Paso 1: Obteniendo nuevas interacciones.');
-        $interactions = $this->getNewInteractions();
+        $interactions = PerformanceTracker::measure('step_1_get_interactions', fn() => $this->getNewInteractions());
 
         if ($interactions->isEmpty()) {
             LogHelper::info('batch-process', 'No hay nuevas interacciones que procesar.');
             return;
         }
 
-        LogHelper::info('batch-process', "Procesando {$interactions->count()} interacciones.");
+        $interactionCount = $interactions->count();
+        LogHelper::info('batch-process', "Procesando {$interactionCount} interacciones.");
 
         LogHelper::info('batch-process', 'Paso 2: Actualizando perfiles de gusto de usuarios.');
-        $affectedUserIds = $this->updateUserTasteProfiles($interactions);
+        $affectedUserIds = PerformanceTracker::measure(
+            'step_2_update_profiles',
+            fn() => $this->updateUserTasteProfiles($interactions),
+            ['interaction_count' => $interactionCount]
+        );
 
         if (empty($affectedUserIds)) {
             LogHelper::info('batch-process', 'Ningún perfil de usuario fue actualizado.');
         } else {
-            LogHelper::info('batch-process', 'Paso 3: Recalculando feeds para ' . count($affectedUserIds) . ' usuarios afectados.');
-            $this->recalculateFeedsForUsers($affectedUserIds);
+            $userCount = count($affectedUserIds);
+            LogHelper::info('batch-process', "Paso 3: Recalculando feeds para {$userCount} usuarios afectados.");
+            PerformanceTracker::measure(
+                'step_3_recalculate_feeds',
+                fn() => $this->recalculateFeedsForUsers($affectedUserIds),
+                ['user_count' => $userCount]
+            );
         }
 
         LogHelper::info('batch-process', 'Paso 4: Marcando interacciones como procesadas.');
-        $this->markInteractionsAsProcessed($interactions->pluck('id')->all());
+        PerformanceTracker::measure(
+            'step_4_mark_processed',
+            fn() => $this->markInteractionsAsProcessed($interactions->pluck('id')->all()),
+            ['interaction_count' => $interactionCount]
+        );
     }
 
     private function getNewInteractions(): Collection
@@ -107,54 +122,77 @@ class RecommendationService
 
         $userProfiles = UserTasteProfile::findMany($userIds)->keyBy('user_id');
 
-        $candidateSamples = SampleVector::inRandomOrder()->limit(self::CANDIDATE_SAMPLES_LIMIT)->get();
+        $candidateSamples = PerformanceTracker::measure(
+            'recalculate_feeds_fetch_candidates',
+            fn() => SampleVector::inRandomOrder()->limit(self::CANDIDATE_SAMPLES_LIMIT)->get(),
+            ['limit' => self::CANDIDATE_SAMPLES_LIMIT]
+        );
+
         if ($candidateSamples->isEmpty()) {
             LogHelper::warning('batch-process', 'No se encontraron samples candidatos para generar recomendaciones.');
             return;
         }
 
         foreach ($userIds as $userId) {
-            $userProfile = $userProfiles->get($userId);
-            if (!$userProfile) continue;
+            PerformanceTracker::measure(
+                'recalculate_feeds_single_user',
+                function () use ($candidateSamples, $userId, $userProfiles) {
+                    $userProfile = $userProfiles->get($userId);
+                    if (!$userProfile) {
+                        return;
+                    }
 
-            $recommendations = [];
+                    $recommendations = [];
 
-            $definitiveInteractions = UserInteraction::where('user_id', $userId)
-                ->whereIn('interaction_type', ['like', 'dislike'])
-                ->pluck('sample_id')
-                ->all();
+                    $definitiveInteractions = PerformanceTracker::measure(
+                        'recalculate_feeds_fetch_interactions',
+                        fn() => UserInteraction::where('user_id', $userId)
+                            ->whereIn('interaction_type', ['like', 'dislike'])
+                            ->pluck('sample_id')
+                            ->all(),
+                        ['user_id' => $userId]
+                    );
 
-            foreach ($candidateSamples as $sampleVector) {
-                $isFollowing = false; // TODO: Implementar lógica de seguimiento.
+                    foreach ($candidateSamples as $sampleVector) {
+                        $isFollowing = false; // TODO: Implementar lógica de seguimiento.
 
-                $score = $this->scoreService->calculateFinalScore(
-                    $userProfile,
-                    $sampleVector,
-                    $definitiveInteractions,
-                    $isFollowing
-                );
+                        $score = $this->scoreService->calculateFinalScore(
+                            $userProfile,
+                            $sampleVector,
+                            $definitiveInteractions,
+                            $isFollowing
+                        );
 
-                if ($score > ScoreCalculationService::PENALTY_DEFINITIVE_INTERACTION) {
-                    $recommendations[] = [
-                        'user_id' => $userId,
-                        'sample_id' => $sampleVector->sample_id,
-                        'score' => $score
-                    ];
-                }
-            }
+                        if ($score > ScoreCalculationService::PENALTY_DEFINITIVE_INTERACTION) {
+                            $recommendations[] = [
+                                'user_id' => $userId,
+                                'sample_id' => $sampleVector->sample_id,
+                                'score' => $score
+                            ];
+                        }
+                    }
 
-            usort($recommendations, fn($a, $b) => $b['score'] <=> $a['score']);
-            $topRecommendations = array_slice($recommendations, 0, self::FEED_SIZE);
+                    usort($recommendations, fn($a, $b) => $b['score'] <=> $a['score']);
+                    $topRecommendations = array_slice($recommendations, 0, self::FEED_SIZE);
 
-            DB::transaction(function () use ($userId, $topRecommendations) {
-                UserFeedRecommendation::where('user_id', $userId)->delete();
-                if (!empty($topRecommendations)) {
-                    $now = Carbon::now();
-                    $insertData = array_map(fn($rec) => $rec + ['generated_at' => $now], $topRecommendations);
-                    UserFeedRecommendation::insert($insertData);
-                }
-            });
-            LogHelper::info('batch-process', "Feed recalculado para el usuario ID: {$userId} con " . count($topRecommendations) . " recomendaciones.");
+                    PerformanceTracker::measure(
+                        'recalculate_feeds_save_recommendations',
+                        function () use ($userId, $topRecommendations) {
+                            DB::transaction(function () use ($userId, $topRecommendations) {
+                                UserFeedRecommendation::where('user_id', $userId)->delete();
+                                if (!empty($topRecommendations)) {
+                                    $now = Carbon::now();
+                                    $insertData = array_map(fn($rec) => $rec + ['generated_at' => $now], $topRecommendations);
+                                    UserFeedRecommendation::insert($insertData);
+                                }
+                            });
+                        },
+                        ['user_id' => $userId, 'recommendation_count' => count($topRecommendations)]
+                    );
+                    LogHelper::info('batch-process', "Feed recalculado para el usuario ID: {$userId} con " . count($topRecommendations) . " recomendaciones.");
+                },
+                ['user_id' => $userId]
+            );
         }
     }
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace app\helpers;
+namespace app\helper; // <-- Corregido de app\helpers a app\helper
 
 use Monolog\Logger;
 use support\Log;

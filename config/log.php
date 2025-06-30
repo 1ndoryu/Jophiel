@@ -40,4 +40,26 @@ return [
             ]
         ],
     ],
+    // Canal de log específico para métricas de rendimiento
+    'performance' => [
+        'handlers' => [
+            [
+                'class' => Monolog\Handler\RotatingFileHandler::class,
+                'constructor' => [
+                    runtime_path() . '/logs/jophiel-performance.log', // Archivo separado
+                    5, // Mantener 5 archivos
+                    Monolog\Logger::DEBUG,
+                ],
+                'formatter' => [
+                    'class' => Monolog\Formatter\LineFormatter::class,
+                    'constructor' => [
+                        "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
+                        'Y-m-d H:i:s',
+                        true, // allowInlineLineBreaks
+                        true  // ignoreEmptyContextAndExtra
+                    ],
+                ],
+            ]
+        ],
+    ],
 ];
