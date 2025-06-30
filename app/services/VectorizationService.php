@@ -2,8 +2,11 @@
 
 namespace app\services;
 
+use app\helper\LogHelper;
 use app\model\SampleVector;
-use Illuminate\Support\Facades\Log;
+use app\model\UserFeedRecommendation;
+use app\model\UserInteraction;
+use Illuminate\Database\Capsule\Manager as DB;
 
 /**
  * Servicio para convertir la metadata de un sample en un vector numérico.
@@ -51,21 +54,54 @@ class VectorizationService
      */
     public function processAndStore(array $metadata): ?SampleVector
     {
-        if (empty($metadata['media_id'])) {
-            Log::warning('vectorization_service', 'Metadata sin media_id, no se puede procesar.');
+        if (empty($metadata['media_id']) || empty($metadata['creator_id'])) {
+            LogHelper::warning('vectorization_service', 'Metadata sin media_id o creator_id, no se puede procesar.', ['metadata' => $metadata]);
             return null;
         }
 
         $vectorArray = $this->vectorize($metadata);
-        $vectorJson = json_encode($vectorArray);
 
         // Usamos updateOrCreate para manejar tanto la creación inicial como futuras actualizaciones.
         $sampleVector = SampleVector::updateOrCreate(
             ['sample_id' => $metadata['media_id']],
-            ['vector' => $vectorJson]
+            [
+                'creator_id' => $metadata['creator_id'],
+                'vector' => json_encode($vectorArray)
+            ]
         );
 
         return $sampleVector;
+    }
+
+    /**
+     * Elimina todos los datos asociados a un sample_id del sistema.
+     *
+     * @param int $sampleId
+     * @return void
+     */
+    public function deleteSampleData(int $sampleId): void
+    {
+        LogHelper::info('vectorization_service', 'Iniciando eliminación de datos para el sample.', ['sample_id' => $sampleId]);
+        try {
+            DB::transaction(function () use ($sampleId) {
+                // Eliminar de la tabla principal de vectores
+                SampleVector::where('sample_id', $sampleId)->delete();
+
+                // Eliminar de todos los feeds de recomendación pre-calculados
+                UserFeedRecommendation::where('sample_id', $sampleId)->delete();
+
+                // Eliminar el historial de interacciones con este sample
+                UserInteraction::where('sample_id', $sampleId)->delete();
+
+                // TODO: Considerar limpiar la tabla `recommendation_cache` si es relevante en el futuro.
+            });
+            LogHelper::info('vectorization_service', 'Datos del sample eliminados con éxito.', ['sample_id' => $sampleId]);
+        } catch (\Throwable $e) {
+            LogHelper::error('vectorization_service', 'Error al eliminar datos del sample.', [
+                'sample_id' => $sampleId,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 
     /**

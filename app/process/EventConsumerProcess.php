@@ -101,10 +101,15 @@ class EventConsumerProcess
         }
 
         $payload = $decoded['payload'];
+        $eventName = $decoded['event_name'];
 
-        switch ($decoded['event_name']) {
+        switch ($eventName) {
             case 'user.interaction.like':
                 (new QuickUpdateService())->handleLike($payload['user_id'], $payload['sample_id']);
+                break;
+
+            case 'user.interaction.follow':
+                (new QuickUpdateService())->handleFollow($payload['user_id'], $payload['followed_user_id']);
                 break;
 
             case 'sample.lifecycle.created':
@@ -114,10 +119,14 @@ class EventConsumerProcess
                 (new VectorizationService())->processAndStore($metadata);
                 break;
 
-            // TODO: Añadir casos para otros eventos (follow, delete, etc.)
+            case 'sample.lifecycle.deleted':
+                (new VectorizationService())->deleteSampleData($payload['sample_id']);
+                break;
+
+            // TODO: Añadir casos para otros eventos (share, comment, etc.)
 
             default:
-                LogHelper::info($log_channel, 'Evento no manejado recibido.', ['event_name' => $decoded['event_name']]);
+                LogHelper::info($log_channel, 'Evento no manejado recibido.', ['event_name' => $eventName]);
         }
     }
 
