@@ -5,7 +5,7 @@ namespace app\commands;
 use app\helper\LogHelper;
 use app\model\UserInteraction;
 use app\model\UserTasteProfile;
-use app\services\RecommendationService;
+use app\services\QuickUpdateService; // <-- CAMBIO AQUÍ
 use Illuminate\Database\Capsule\Manager as DB;
 
 class QuickUpdateTestCommand
@@ -17,7 +17,7 @@ class QuickUpdateTestCommand
         // 1. Seleccionar un usuario y un sample al azar para la simulación
         $user = UserTasteProfile::inRandomOrder()->first();
         if (!$user) {
-            echo "Error: No se encontraron usuarios en la base de datos. Ejecute 'db:seed' primero.\n";
+            echo "Error: No se encontraron usuarios en la base de datos. Ejecute 'jophiel db:seed' primero.\n";
             return;
         }
 
@@ -47,8 +47,8 @@ class QuickUpdateTestCommand
         $startTime = microtime(true);
 
         try {
-            $service = new RecommendationService();
-            $service->runQuickUpdateForLike($userId, $sampleId);
+            $service = new QuickUpdateService(); // <-- CAMBIO AQUÍ
+            $service->handleLike($userId, $sampleId); // <-- CAMBIO AQUÍ
 
             $duration = microtime(true) - $startTime;
 

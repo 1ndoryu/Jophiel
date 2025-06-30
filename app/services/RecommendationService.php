@@ -5,128 +5,30 @@ namespace app\services;
 use app\helper\LogHelper;
 use app\helper\PerformanceTracker;
 use app\model\SampleVector;
-use app\model\UserFeedRecommendation;
-use app\model\UserFollow;
 use app\model\UserInteraction;
 use app\model\UserTasteProfile;
+use app\services\concerns\ProvidesUserData;
 use Carbon\Carbon;
-use Illuminate\Database\Capsule\Manager as DB;
 use Illuminate\Support\Collection;
 
 class RecommendationService
 {
+    use ProvidesUserData;
+
     private ScoreCalculationService $scoreService;
-    private VectorizationService $vectorizationService;
+    private FeedManagerService $feedManager;
 
     // --- Constantes de Configuración del Proceso Batch ---
     private const INTERACTION_BATCH_SIZE = 1000;
     private const PROFILE_UPDATE_LEARNING_RATE = 0.05;
-    private const CANDIDATE_SAMPLES_LIMIT = 1000; // Límite de candidatos por pre-filtrado.
+    private const CANDIDATE_SAMPLES_LIMIT = 1000;
     private const FEED_SIZE = 200;
-    private const TASTE_VECTOR_THRESHOLD = 0.1; // Umbral para considerar una característica como "importante" para un usuario.
-
-    // --- Constantes de Configuración para Reacción Rápida ---
-    private const QUICK_UPDATE_CANDIDATE_COUNT = 50;  // Número de candidatos a considerar para inyección.
-    private const QUICK_UPDATE_INJECTION_COUNT = 5;   // Número de samples nuevos a inyectar en el feed.
+    private const TASTE_VECTOR_THRESHOLD = 0.1;
 
     public function __construct()
     {
         $this->scoreService = new ScoreCalculationService();
-        $this->vectorizationService = new VectorizationService();
-    }
-
-    /**
-     * Ejecuta una actualización rápida y ligera del feed de un usuario
-     * después de una interacción de alto valor, como un 'like'.
-     *
-     * @param int $userId El ID del usuario que realizó la acción.
-     * @param int $likedSampleId El ID del sample que recibió el 'like'.
-     * @return void
-     */
-    public function runQuickUpdateForLike(int $userId, int $likedSampleId): void
-    {
-        LogHelper::info('quick-update', "Iniciando actualización rápida para usuario {$userId} por like en sample {$likedSampleId}.");
-
-        // 1. Obtener los datos necesarios
-        $userProfile = UserTasteProfile::find($userId);
-        $likedSample = SampleVector::find($likedSampleId);
-
-        if (!$userProfile || !$likedSample) {
-            LogHelper::warning('quick-update', "No se pudo encontrar el perfil de usuario o el sample para la actualización rápida.", [
-                'user_id' => $userId,
-                'sample_id' => $likedSampleId
-            ]);
-            return;
-        }
-
-        // 2. Encontrar candidatos similares al sample que le gustó al usuario
-        $candidates = SampleVector::where('sample_id', '!=', $likedSampleId)
-                                  ->inRandomOrder()
-                                  ->limit(self::QUICK_UPDATE_CANDIDATE_COUNT)
-                                  ->get();
-
-        $similarCandidates = [];
-        foreach ($candidates as $candidate) {
-            $similarity = $this->scoreService->calculateCosineSimilarity($likedSample->vector, $candidate->vector);
-            if ($similarity > 0.7) { // Umbral de similitud alto para inyectar solo contenido muy relevante
-                $similarCandidates[] = $candidate;
-            }
-        }
-
-        if (empty($similarCandidates)) {
-             LogHelper::info('quick-update', "No se encontraron candidatos suficientemente similares para inyectar.", ['liked_sample_id' => $likedSampleId]);
-             return;
-        }
-
-        // 3. Puntuar estos candidatos para el usuario actual
-        $definitiveInteractions = $this->getUserDefinitiveInteractions($userId);
-        $followedCreators = $this->getFollowedCreatorsForUsers([$userId])->get($userId, collect())->flip();
-        $newlyScoredRecommendations = [];
-
-        foreach ($similarCandidates as $candidate) {
-             $isFollowing = $followedCreators->has($candidate->creator_id);
-             $score = $this->scoreService->calculateFinalScore(
-                 $userProfile->taste_vector,
-                 $candidate,
-                 $definitiveInteractions,
-                 $isFollowing
-             );
-            
-             if ($score > ScoreCalculationService::PENALTY_DEFINITIVE_INTERACTION) {
-                $newlyScoredRecommendations[] = [
-                    'user_id' => $userId,
-                    'sample_id' => $candidate->sample_id,
-                    'score' => $score,
-                ];
-             }
-        }
-
-        if (empty($newlyScoredRecommendations)) {
-             LogHelper::info('quick-update', "Los candidatos similares no obtuvieron un buen score para el usuario.", ['user_id' => $userId]);
-             return;
-        }
-
-        usort($newlyScoredRecommendations, fn($a, $b) => $b['score'] <=> $a['score']);
-        $injections = array_slice($newlyScoredRecommendations, 0, self::QUICK_UPDATE_INJECTION_COUNT);
-        $injectionIds = array_column($injections, 'sample_id');
-        $definitiveInteractionIds = array_flip($definitiveInteractions);
-
-        // 4. Inyectar en el feed existente del usuario
-        $existingFeed = UserFeedRecommendation::where('user_id', $userId)
-            ->whereNotIn('sample_id', $injectionIds)
-            ->get()
-            ->filter(fn($item) => !isset($definitiveInteractionIds[$item->sample_id])) // Doble chequeo por si acaso
-            ->map(fn ($item) => ['user_id' => $item->user_id, 'sample_id' => $item->sample_id, 'score' => $item->score])
-            ->toArray();
-
-        $newFeed = array_merge($injections, $existingFeed);
-        usort($newFeed, fn($a, $b) => $b['score'] <=> $a['score']);
-        $finalFeed = array_slice($newFeed, 0, self::FEED_SIZE);
-
-        // 5. Guardar el nuevo feed
-        $this->saveUserFeed($userId, $finalFeed);
-
-        LogHelper::info('quick-update', "Actualización rápida completada. Se procesaron " . count($injections) . " nuevos samples para el feed del usuario {$userId}.");
+        $this->feedManager = new FeedManagerService();
     }
 
     public function runBatchProcess(): void
@@ -217,7 +119,7 @@ class RecommendationService
                 usort($recommendations, fn($a, $b) => $b['score'] <=> $a['score']);
                 $topRecommendations = array_slice($recommendations, 0, self::FEED_SIZE);
 
-                $this->saveUserFeed($userId, $topRecommendations);
+                $this->feedManager->saveUserFeed($userId, $topRecommendations);
 
                 LogHelper::info('batch-process', "Feed recalculado para el usuario ID: {$userId} con " . count($topRecommendations) . " recomendaciones.");
             }, ['user_id' => $userId]);
@@ -265,43 +167,12 @@ class RecommendationService
 
             if ($score > ScoreCalculationService::PENALTY_DEFINITIVE_INTERACTION) {
                 $recommendations[] = [
-                    'user_id' => $userProfile->user_id,
                     'sample_id' => $sample->sample_id,
                     'score' => $score
                 ];
             }
         }
         return $recommendations;
-    }
-
-    private function getUserDefinitiveInteractions(int $userId): array
-    {
-        return UserInteraction::where('user_id', $userId)
-            ->whereIn('interaction_type', ['like', 'dislike'])
-            ->pluck('sample_id')
-            ->all();
-    }
-
-    private function getFollowedCreatorsForUsers(array $userIds): Collection
-    {
-        return UserFollow::whereIn('user_id', $userIds)
-            ->get()
-            ->groupBy('user_id')
-            ->map(fn($follows) => $follows->pluck('followed_user_id'));
-    }
-
-    private function saveUserFeed(int $userId, array $topRecommendations): void
-    {
-        PerformanceTracker::measure('save_recommendations', function () use ($userId, $topRecommendations) {
-            DB::transaction(function () use ($userId, $topRecommendations) {
-                UserFeedRecommendation::where('user_id', $userId)->delete();
-                if (!empty($topRecommendations)) {
-                    $now = Carbon::now();
-                    $insertData = array_map(fn($rec) => $rec + ['generated_at' => $now], $topRecommendations);
-                    UserFeedRecommendation::insert($insertData);
-                }
-            });
-        }, ['user_id' => $userId, 'recommendation_count' => count($topRecommendations)]);
     }
 
     private function markInteractionsAsProcessed(array $interactionIds): void
