@@ -12,7 +12,7 @@ class InstallerCommand
         try {
             // Drop type if exists to allow re-running install
             DB::connection()->statement('DROP TYPE IF EXISTS interaction_type CASCADE');
-            
+
             $sql = $this->getInstallSql();
             DB::connection()->unprepared($sql);
             echo "¡Esquema de base de datos creado con éxito!\n";
@@ -21,18 +21,20 @@ class InstallerCommand
         }
     }
 
-    public function reset(): void
+    public function reset(bool $force = false): void
     {
-        echo "ADVERTENCIA: Esta acción eliminará todos los datos de las tablas de Jophiel.\n";
-        echo "Escriba 'si' para continuar: ";
-        $handle = fopen("php://stdin", "r");
-        $line = fgets($handle);
-        if (trim(strtolower($line)) !== 'si') {
-            echo "Reinicio cancelado.\n";
-            return;
+        if (!$force) {
+            echo "ADVERTENCIA: Esta acción eliminará todos los datos de las tablas de Jophiel.\n";
+            echo "Escriba 'si' para continuar: ";
+            $handle = fopen("php://stdin", "r");
+            $line = fgets($handle);
+            if (trim(strtolower($line)) !== 'si') {
+                echo "Reinicio cancelado.\n";
+                return;
+            }
+            fclose($handle);
         }
-        fclose($handle);
-        
+
         echo "Reiniciando tablas...\n";
         try {
             DB::statement('TRUNCATE TABLE user_interactions, user_taste_profiles, sample_vectors, user_feed_recommendations, recommendation_cache RESTART IDENTITY');
