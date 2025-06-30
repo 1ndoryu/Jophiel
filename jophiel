@@ -1,0 +1,48 @@
+#!/usr/bin/env php
+<?php
+// Jophiel - CLI Tool
+
+// Bootstrap de la aplicación para acceder a los modelos y la configuración.
+require_once __DIR__ . '/vendor/autoload.php';
+require_once __DIR__ . '/support/bootstrap.php';
+
+use app\commands\InstallerCommand;
+use app\commands\BatchCommand;
+
+if ($argc < 2) {
+    echo "Jophiel CLI Tool\n";
+    echo "Uso: php jophiel <comando>\n\n";
+    echo "Comandos disponibles:\n";
+    echo "  db:install       Crea las tablas necesarias en la base de datos.\n";
+    echo "  db:reset         Elimina todos los datos de las tablas de Jophiel.\n";
+    echo "  db:seed          Puebla la base de datos con datos de prueba.\n";
+    echo "  batch:run        Ejecuta un único ciclo del proceso de recomendación.\n";
+    exit(1);
+}
+
+$command = $argv[1];
+
+switch ($command) {
+    case 'db:install':
+        (new InstallerCommand())->install();
+        break;
+
+    case 'db:reset':
+        (new InstallerCommand())->reset();
+        break;
+        
+    case 'db:seed':
+        echo "Ejecutando el seeder de la base de datos...\n";
+        require __DIR__ . '/app/database/seed.php';
+        break;
+
+    case 'batch:run':
+        (new BatchCommand())->run();
+        break;
+
+    default:
+        echo "Comando no reconocido: $command\n";
+        exit(1);
+}
+
+exit(0);

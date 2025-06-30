@@ -1,0 +1,97 @@
+<?php
+
+namespace app\commands;
+
+use Illuminate\Database\Capsule\Manager as DB;
+
+class InstallerCommand
+{
+    public function install(): void
+    {
+        echo "Iniciando instalación del esquema de Jophiel...\n";
+        try {
+            // Drop type if exists to allow re-running install
+            DB::connection()->statement('DROP TYPE IF EXISTS interaction_type CASCADE');
+            
+            $sql = $this->getInstallSql();
+            DB::connection()->unprepared($sql);
+            echo "¡Esquema de base de datos creado con éxito!\n";
+        } catch (\Exception $e) {
+            echo "Error durante la instalación: " . $e->getMessage() . "\n";
+        }
+    }
+
+    public function reset(): void
+    {
+        echo "ADVERTENCIA: Esta acción eliminará todos los datos de las tablas de Jophiel.\n";
+        echo "Escriba 'si' para continuar: ";
+        $handle = fopen("php://stdin", "r");
+        $line = fgets($handle);
+        if (trim(strtolower($line)) !== 'si') {
+            echo "Reinicio cancelado.\n";
+            return;
+        }
+        fclose($handle);
+        
+        echo "Reiniciando tablas...\n";
+        try {
+            DB::statement('TRUNCATE TABLE user_interactions, user_taste_profiles, sample_vectors, user_feed_recommendations, recommendation_cache RESTART IDENTITY');
+            echo "¡Tablas reiniciadas con éxito!\n";
+        } catch (\Exception $e) {
+            echo "Error durante el reinicio: " . $e->getMessage() . "\n";
+        }
+    }
+
+    private function getInstallSql(): string
+    {
+        return "
+CREATE TYPE interaction_type AS ENUM ('like', 'dislike', 'play', 'skip', 'follow');
+
+CREATE TABLE sample_vectors (
+    sample_id BIGINT PRIMARY KEY,
+    vector TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE sample_vectors IS 'Almacena el vector numérico (ADN) de cada sample de audio.';
+
+CREATE TABLE user_taste_profiles (
+    user_id BIGINT PRIMARY KEY,
+    taste_vector TEXT NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE user_taste_profiles IS 'Almacena el vector de gustos agregado para cada usuario.';
+
+CREATE TABLE user_interactions (
+    id BIGSERIAL PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    sample_id BIGINT NOT NULL,
+    interaction_type interaction_type NOT NULL,
+    weight REAL NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
+);
+CREATE INDEX idx_user_interactions_user_id ON user_interactions(user_id);
+CREATE INDEX idx_user_interactions_created_at ON user_interactions(created_at);
+CREATE INDEX idx_user_interactions_unprocessed ON user_interactions(id) WHERE processed_at IS NULL;
+COMMENT ON TABLE user_interactions IS 'Registro de todas las interacciones ponderadas de los usuarios con los samples.';
+
+CREATE TABLE user_feed_recommendations (
+    user_id BIGINT NOT NULL,
+    sample_id BIGINT NOT NULL,
+    score REAL NOT NULL,
+    generated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, sample_id)
+);
+COMMENT ON TABLE user_feed_recommendations IS 'Tabla final con el top N de recomendaciones pre-calculadas para cada usuario.';
+
+CREATE TABLE recommendation_cache (
+    cache_key VARCHAR(255) PRIMARY KEY,
+    recommended_ids JSONB NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+CREATE INDEX idx_recommendation_cache_expires_at ON recommendation_cache(expires_at);
+COMMENT ON TABLE recommendation_cache IS 'Caché para resultados costosos como \"samples similares\" o \"ideas para tableros\".';
+";
+    }
+}

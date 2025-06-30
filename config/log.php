@@ -62,4 +62,26 @@ return [
             ]
         ],
     ],
+    // Canal de log para los comandos CLI manuales
+    'batch-command' => [
+        'handlers' => [
+            [
+                'class' => Monolog\Handler\RotatingFileHandler::class,
+                'constructor' => [
+                    runtime_path() . '/logs/jophiel-command.log', // Archivo separado para comandos
+                    5, // Mantener 5 archivos
+                    Monolog\Logger::DEBUG,
+                ],
+                'formatter' => [
+                    'class' => Monolog\Formatter\LineFormatter::class,
+                    'constructor' => [
+                        "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
+                        'Y-m-d H:i:s',
+                        true,
+                        true
+                    ],
+                ],
+            ]
+        ],
+    ],
 ];

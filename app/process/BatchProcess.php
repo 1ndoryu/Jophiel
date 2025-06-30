@@ -14,24 +14,21 @@ use Workerman\Timer;
 class BatchProcess
 {
     private ?RecommendationService $recommendationService = null;
+    private const RECURRING_INTERVAL_SECONDS = 300; // 5 minutos
 
     /**
      * Se ejecuta cuando el worker inicia.
      */
     public function onWorkerStart(): void
     {
-        // El bootstrap de la BD y config ya debería estar cargado por Webman.
-        // Para evitar que el proceso se ejecute inmediatamente y colisione con el arranque,
-        // esperamos unos segundos antes de la primera ejecución.
-        Timer::add(5, function () {
-            $this->recommendationService = new RecommendationService();
+        // Instanciar el servicio.
+        $this->recommendationService = new RecommendationService();
 
-            // Ejecutar el ciclo de inmediato una vez.
-            $this->runCycle();
+        // Ejecutar el primer ciclo de inmediato al arrancar.
+        $this->runCycle();
 
-            // Programar ejecuciones periódicas (cada 5 minutos).
-            Timer::add(300, [$this, 'runCycle']);
-        }, [], false); // Ejecutar solo una vez
+        // Luego, programar las ejecuciones periódicas recurrentes.
+        Timer::add(self::RECURRING_INTERVAL_SECONDS, [$this, 'runCycle']);
     }
 
     /**
