@@ -53,5 +53,11 @@ return [
         'handler' => \app\process\BatchProcess::class,
         'reloadable' => false, // Es un proceso de fondo, no debería recargarse automáticamente
         'constructor' => []
+    ],
+    // AÑADIDO: Proceso para consumir eventos de RabbitMQ
+    'jophiel-event-consumer' => [
+        'handler' => \app\process\EventConsumerProcess::class,
+        'reloadable' => false,
+        'constructor' => []
     ]
 ];
