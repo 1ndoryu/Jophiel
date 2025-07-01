@@ -125,6 +125,16 @@ class EventConsumerProcess
         (new QuickUpdateService())->handleFollow($payload['user_id'], $payload['followed_user_id']);
         break;
 
+      case 'user.interaction.unlike':
+        LogHelper::info($log_channel, "Llamando a QuickUpdateService->handleUnlike.", ['payload' => $payload]);
+        (new QuickUpdateService())->handleUnlike($payload['user_id'], $payload['sample_id']);
+        break;
+
+      case 'user.interaction.unfollow':
+        LogHelper::info($log_channel, "Llamando a QuickUpdateService->handleUnfollow.", ['payload' => $payload]);
+        (new QuickUpdateService())->handleUnfollow($payload['user_id'], $payload['unfollowed_user_id']);
+        break;
+
       case 'sample.lifecycle.created':
       case 'sample.lifecycle.updated':
         LogHelper::info($log_channel, "Llamando a VectorizationService->processAndStore.", ['payload' => $payload]);
