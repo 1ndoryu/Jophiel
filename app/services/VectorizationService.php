@@ -61,6 +61,13 @@ class VectorizationService
 
         $vectorArray = $this->vectorize($metadata);
 
+        $isCreating = !SampleVector::where('sample_id', $metadata['media_id'])->exists();
+        LogHelper::info(
+            'vectorization_service',
+            ($isCreating ? 'Creando nuevo' : 'Actualizando') . ' vector de sample.',
+            ['sample_id' => $metadata['media_id']]
+        );
+
         // Usamos updateOrCreate para manejar tanto la creación inicial como futuras actualizaciones.
         $sampleVector = SampleVector::updateOrCreate(
             ['sample_id' => $metadata['media_id']],

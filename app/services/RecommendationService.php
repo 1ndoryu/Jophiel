@@ -96,32 +96,47 @@ class RecommendationService
             $userProfile->save();
         }
 
+        LogHelper::info('batch-process', 'Perfiles de gusto actualizados.', ['updated_user_ids' => $affectedUserIds]);
         return $affectedUserIds;
     }
 
     private function recalculateFeedsForUsers(array $userIds): void
     {
         if (empty($userIds)) return;
-        
+
         $userProfiles = UserTasteProfile::findMany($userIds)->keyBy('user_id');
         $allUserFollows = $this->getFollowedCreatorsForUsers($userIds);
 
         foreach ($userProfiles as $userId => $userProfile) {
             PerformanceTracker::measure('recalculate_feeds_single_user', function () use ($userId, $userProfile, $allUserFollows) {
+                LogHelper::info('batch-process', "Iniciando recalculo para usuario.", ['user_id' => $userId]);
+
                 $followedCreators = $allUserFollows->get($userId, collect())->flip();
                 $definitiveInteractions = $this->getUserDefinitiveInteractions($userId);
 
                 $candidates = $this->getCandidateSamplesForUser($userProfile);
-                if ($candidates->isEmpty()) return;
+                LogHelper::info('batch-process', 'Candidatos obtenidos para usuario.', ['user_id' => $userId, 'candidate_count' => $candidates->count()]);
+
+                if ($candidates->isEmpty()) {
+                    LogHelper::info('batch-process', 'No se encontraron candidatos para el usuario, saltando.', ['user_id' => $userId]);
+                    return;
+                }
 
                 $recommendations = $this->scoreCandidates($userProfile, $candidates, $definitiveInteractions, $followedCreators);
-                
+                LogHelper::info('batch-process', 'Candidatos puntuados.', ['user_id' => $userId, 'scored_recommendations' => count($recommendations)]);
+
                 usort($recommendations, fn($a, $b) => $b['score'] <=> $a['score']);
                 $topRecommendations = array_slice($recommendations, 0, self::FEED_SIZE);
 
+                $top5 = array_map(function ($rec) {
+                    return ['sample_id' => $rec['sample_id'], 'score' => round($rec['score'], 4)];
+                }, array_slice($topRecommendations, 0, 5));
+
+                LogHelper::info('batch-process', 'Top 5 recomendaciones para usuario.', ['user_id' => $userId, 'top_5' => $top5]);
+
                 $this->feedManager->saveUserFeed($userId, $topRecommendations);
 
-                LogHelper::info('batch-process', "Feed recalculado para el usuario ID: {$userId} con " . count($topRecommendations) . " recomendaciones.");
+                LogHelper::info('batch-process', "Feed recalculado y guardado para el usuario.", ['user_id' => $userId, 'final_recommendation_count' => count($topRecommendations)]);
             }, ['user_id' => $userId]);
         }
     }
@@ -145,7 +160,7 @@ class RecommendationService
             foreach ($hotIndices as $index) {
                 // Buscamos samples que tengan un 1 en alguna de las posiciones "calientes" del vector de gusto del usuario.
                 // Esta sintaxis es segura porque $index es un entero.
-                $q->orWhereRaw("vector->>".(int)$index." = '1'");
+                $q->orWhereRaw("vector->>" . (int)$index . " = '1'");
             }
         });
 
