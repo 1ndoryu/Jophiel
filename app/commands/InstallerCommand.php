@@ -17,6 +17,7 @@ class InstallerCommand
             DB::connection()->statement('DROP TABLE IF EXISTS user_taste_profiles CASCADE');
             DB::connection()->statement('DROP TABLE IF EXISTS sample_vectors CASCADE');
             DB::connection()->statement('DROP TABLE IF EXISTS user_follows CASCADE');
+            DB::connection()->statement('DROP TABLE IF EXISTS users CASCADE');
             DB::connection()->statement('DROP TYPE IF EXISTS interaction_type CASCADE');
 
             $sql = $this->getInstallSql();
@@ -110,6 +111,15 @@ CREATE TABLE user_follows (
     PRIMARY KEY (user_id, followed_user_id)
 );
 COMMENT ON TABLE user_follows IS 'Registra qué usuarios siguen a qué creadores.';
+
+CREATE TABLE users (
+    id BIGINT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON TABLE users IS 'Tabla de usuarios (para propósitos de testing en Jophiel).';
 ";
     }
 }

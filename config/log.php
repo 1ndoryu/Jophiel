@@ -202,4 +202,26 @@ return [
             $master_handler, // <-- AÑADIDO: Loguear a maestro
         ],
     ],
+
+    // Canal de log para el enrutador de eventos
+    'event-router' => [
+        'handlers' => [
+            [
+                'class' => Monolog\Handler\RotatingFileHandler::class,
+                'constructor' => [
+                    runtime_path() . '/logs/jophiel-event-router.log',
+                    5,
+                    Monolog\Logger::DEBUG,
+                ],
+                'formatter' => [
+                    'class' => Monolog\Formatter\LineFormatter::class,
+                    'constructor' => [
+                        "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
+                        'Y-m-d H:i:s', true, true
+                    ],
+                ],
+            ],
+            $master_handler,
+        ],
+    ],
 ];

@@ -3,8 +3,6 @@
 namespace app\process;
 
 use app\helper\LogHelper;
-use app\services\QuickUpdateService;
-use app\services\VectorizationService;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
 use Throwable;
 use Workerman\Timer;
@@ -109,52 +107,8 @@ class EventConsumerProcess
    
     LogHelper::info($log_channel, "Ruteando evento.", ['event_name' => $eventName]);
 
-    switch ($eventName) {
-      case 'user.interaction.like':
-        LogHelper::info($log_channel, "Llamando a QuickUpdateService->handleLike.", ['payload' => $payload]);
-        (new QuickUpdateService())->handleLike($payload['user_id'], $payload['sample_id']);
-        break;
-
-      case 'user.interaction.comment':
-        LogHelper::info($log_channel, "Llamando a QuickUpdateService->handleComment.", ['payload' => $payload]);
-        (new QuickUpdateService())->handleComment($payload['user_id'], $payload['sample_id']);
-        break;
-
-      case 'user.interaction.follow':
-        LogHelper::info($log_channel, "Llamando a QuickUpdateService->handleFollow.", ['payload' => $payload]);
-        (new QuickUpdateService())->handleFollow($payload['user_id'], $payload['followed_user_id']);
-        break;
-
-      case 'user.interaction.unlike':
-        LogHelper::info($log_channel, "Llamando a QuickUpdateService->handleUnlike.", ['payload' => $payload]);
-        (new QuickUpdateService())->handleUnlike($payload['user_id'], $payload['sample_id']);
-        break;
-
-      case 'user.interaction.unfollow':
-        LogHelper::info($log_channel, "Llamando a QuickUpdateService->handleUnfollow.", ['payload' => $payload]);
-        (new QuickUpdateService())->handleUnfollow($payload['user_id'], $payload['unfollowed_user_id']);
-        break;
-
-      case 'sample.lifecycle.created':
-      case 'sample.lifecycle.updated':
-        LogHelper::info($log_channel, "Llamando a VectorizationService->processAndStore.", ['payload' => $payload]);
-        $metadata = $payload['metadata'];
-        $metadata['media_id'] = $payload['sample_id'];
-        $metadata['creator_id'] = $payload['creator_id'];
-        (new VectorizationService())->processAndStore($metadata);
-        break;
-
-      case 'sample.lifecycle.deleted':
-        LogHelper::info($log_channel, "Llamando a VectorizationService->deleteSampleData.", ['payload' => $payload]);
-        (new VectorizationService())->deleteSampleData($payload['sample_id']);
-        break;
-
-      // TODO: Añadir casos para otros eventos de baja prioridad que requieran acción (ej: unlike, unfollow).
-      // Por ahora, son procesados por el batch principal y no necesitan acción inmediata aquí.
-
-      default:
-        LogHelper::info($log_channel, 'Evento no manejado recibido.', ['event_name' => $eventName]);
-    }
+    // Delegamos el ruteo al nuevo EventRouter para evitar duplicación de lógica.
+    \app\services\EventRouter::route($eventName, $payload);
   }
 
   public function onWorkerStop(): void

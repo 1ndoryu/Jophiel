@@ -73,7 +73,7 @@ class VectorizationService
             ['sample_id' => $metadata['media_id']],
             [
                 'creator_id' => $metadata['creator_id'],
-                'vector' => json_encode($vectorArray)
+                'vector' => $vectorArray
             ]
         );
 

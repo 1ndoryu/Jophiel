@@ -24,6 +24,9 @@ IGNORAR_CARPETAS = [
     "runtime",
     "tests",
     "runtime",
+    "history",
+    ".history",
+
 
 ]
 
