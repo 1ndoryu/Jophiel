@@ -63,7 +63,9 @@ return [
                     'class' => Monolog\Formatter\LineFormatter::class,
                     'constructor' => [
                         "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
-                        'Y-m-d H:i:s', true, true
+                        'Y-m-d H:i:s',
+                        true,
+                        true
                     ],
                 ],
             ],
@@ -85,7 +87,9 @@ return [
                     'class' => Monolog\Formatter\LineFormatter::class,
                     'constructor' => [
                         "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
-                        'Y-m-d H:i:s', true, true
+                        'Y-m-d H:i:s',
+                        true,
+                        true
                     ],
                 ],
             ],
@@ -107,7 +111,9 @@ return [
                     'class' => Monolog\Formatter\LineFormatter::class,
                     'constructor' => [
                         "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
-                        'Y-m-d H:i:s', true, true
+                        'Y-m-d H:i:s',
+                        true,
+                        true
                     ],
                 ],
             ],
@@ -129,7 +135,9 @@ return [
                     'class' => Monolog\Formatter\LineFormatter::class,
                     'constructor' => [
                         "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
-                        'Y-m-d H:i:s', true, true
+                        'Y-m-d H:i:s',
+                        true,
+                        true
                     ],
                 ],
             ],
@@ -151,7 +159,9 @@ return [
                     'class' => Monolog\Formatter\LineFormatter::class,
                     'constructor' => [
                         "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
-                        'Y-m-d H:i:s', true, true
+                        'Y-m-d H:i:s',
+                        true,
+                        true
                     ],
                 ],
             ],
@@ -173,14 +183,16 @@ return [
                     'class' => Monolog\Formatter\LineFormatter::class,
                     'constructor' => [
                         "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
-                        'Y-m-d H:i:s', true, true
+                        'Y-m-d H:i:s',
+                        true,
+                        true
                     ],
                 ],
             ],
             $master_handler, // <-- AÑADIDO: Loguear a maestro
         ],
     ],
-    
+
     // Canal para el servicio de vectorización
     'vectorization_service' => [
         'handlers' => [
@@ -195,7 +207,9 @@ return [
                     'class' => Monolog\Formatter\LineFormatter::class,
                     'constructor' => [
                         "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
-                        'Y-m-d H:i:s', true, true
+                        'Y-m-d H:i:s',
+                        true,
+                        true
                     ],
                 ],
             ],
@@ -217,11 +231,35 @@ return [
                     'class' => Monolog\Formatter\LineFormatter::class,
                     'constructor' => [
                         "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
-                        'Y-m-d H:i:s', true, true
+                        'Y-m-d H:i:s',
+                        true,
+                        true
                     ],
                 ],
             ],
             $master_handler,
+        ],
+    ],
+    'sync-controller-debug' => [
+        'handlers' => [
+            [
+                'class' => Monolog\Handler\RotatingFileHandler::class,
+                'constructor' => [
+                    runtime_path() . '/logs/jophiel-sync-debug.log',
+                    2, // maxFiles
+                    Monolog\Logger::DEBUG,
+                ],
+                'formatter' => [
+                    'class' => Monolog\Formatter\LineFormatter::class,
+                    'constructor' => [
+                        "[%datetime%] %level_name%: %message% %context% %extra%\n",
+                        'Y-m-d H:i:s',
+                        true,
+                        true
+                    ],
+                ],
+            ],
+            $master_handler, // También enviar al log maestro
         ],
     ],
 ];

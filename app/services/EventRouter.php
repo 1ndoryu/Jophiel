@@ -1,4 +1,5 @@
 <?php
+// ARCHIVO MODIFICADO: app/services/EventRouter.php
 
 namespace app\services;
 
@@ -28,6 +29,7 @@ class EventRouter
 
         try {
             switch ($eventName) {
+                // --- Interacciones de Usuario ---
                 case 'user.interaction.like':
                     (new QuickUpdateService())->handleLike($payload['user_id'], $payload['sample_id']);
                     break;
@@ -48,17 +50,28 @@ class EventRouter
                     (new QuickUpdateService())->handleUnfollow($payload['user_id'], $payload['unfollowed_user_id']);
                     break;
 
+                // --- Ciclo de Vida de Samples ---
                 case 'sample.lifecycle.created':
                 case 'sample.lifecycle.updated':
-                    $metadata                 = $payload['metadata'];
-                    $metadata['media_id']     = $payload['sample_id'];
-                    $metadata['creator_id']   = $payload['creator_id'];
+                    $metadata                   = $payload['metadata'];
+                    $metadata['media_id']   = $payload['sample_id'];
+                    $metadata['creator_id'] = $payload['creator_id'];
                     (new VectorizationService())->processAndStore($metadata);
                     break;
 
                 case 'sample.lifecycle.deleted':
                     (new VectorizationService())->deleteSampleData($payload['sample_id']);
                     break;
+
+                // --- INICIO: NUEVO MANEJO DEL CICLO DE VIDA DE USUARIOS ---
+                case 'user.lifecycle.created':
+                    (new UserService())->handleUserCreated($payload);
+                    break;
+                
+                case 'user.lifecycle.deleted':
+                    (new UserService())->handleUserDeleted($payload['user_id']);
+                    break;
+                // --- FIN: NUEVO MANEJO DEL CICLO DE VIDA DE USUARIOS ---
 
                 default:
                     LogHelper::info($log_channel, 'Evento no manejado recibido.', ['event_name' => $eventName]);
@@ -71,4 +84,4 @@ class EventRouter
             ]);
         }
     }
-} 
+}
