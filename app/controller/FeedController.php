@@ -8,6 +8,8 @@ use support\Response;
 use support\Log;
 use Throwable;
 use Carbon\Carbon;
+use app\helper\PerformanceTracker;
+use app\helper\LogHelper;
 
 class FeedController
 {
@@ -20,28 +22,39 @@ class FeedController
      */
     public function get(Request $request, int $user_id): Response
     {
-        try {
-            $recommendations = UserFeedRecommendation::where('user_id', $user_id)
-                ->orderBy('score', 'desc')
-                ->limit(200) // Consistent with FEED_SIZE in services
-                ->pluck('sample_id');
+        return PerformanceTracker::measure('feed_request', function () use ($user_id) {
+            try {
+                $recommendations = UserFeedRecommendation::where('user_id', $user_id)
+                    ->orderBy('score', 'desc')
+                    ->limit(200)
+                    ->pluck('sample_id');
 
-            $response_payload = [
-                'user_id' => (int)$user_id,
-                'generated_at' => Carbon::now()->toIso8601String(),
-                'sample_ids' => $recommendations->all(),
-            ];
+                $response_payload = [
+                    'user_id'       => (int)$user_id,
+                    'generated_at'  => Carbon::now()->toIso8601String(),
+                    'sample_ids'    => $recommendations->all(),
+                ];
 
-            return new Response(200, ['Content-Type' => 'application/json'], json_encode($response_payload));
-        } catch (Throwable $e) {
-            Log::channel('default')->error('Error retrieving feed for user', [
-                'user_id' => $user_id,
-                'error' => $e->getMessage()
-            ]);
-            $error_response = [
-                'error' => 'An internal error occurred while generating the feed.'
-            ];
-            return new Response(500, ['Content-Type' => 'application/json'], json_encode($error_response));
-        }
+                // Logueamos la generación del feed con detalles útiles.
+                LogHelper::info('default', 'Feed generado para usuario', [
+                    'user_id'        => $user_id,
+                    'sample_count'   => count($response_payload['sample_ids']),
+                ]);
+
+                return new Response(200, ['Content-Type' => 'application/json'], json_encode($response_payload));
+            } catch (Throwable $e) {
+                LogHelper::error('default', 'Error al obtener el feed del usuario', [
+                    'user_id' => $user_id,
+                    'error'   => $e->getMessage(),
+                ]);
+
+                $error_response = [
+                    'error' => 'Ha ocurrido un error interno al generar el feed.'
+                ];
+                return new Response(500, ['Content-Type' => 'application/json'], json_encode($error_response));
+            }
+        }, [
+            'user_id' => $user_id,
+        ]);
     }
 }
