@@ -10,6 +10,7 @@ use Throwable;
 use Carbon\Carbon;
 use app\helper\PerformanceTracker;
 use app\helper\LogHelper;
+use app\model\SampleVector;
 
 class FeedController
 {
@@ -28,6 +29,15 @@ class FeedController
                     ->orderBy('score', 'desc')
                     ->limit(200)
                     ->pluck('sample_id');
+
+                // Si el usuario aún no tiene recomendaciones calculadas
+                // (por ejemplo, es nuevo y no ha interactuado),
+                // devolvemos un feed por defecto con los últimos samples creados.
+                if ($recommendations->isEmpty()) {
+                    $recommendations = \app\model\SampleVector::orderBy('created_at', 'desc')
+                        ->limit(200)
+                        ->pluck('sample_id');
+                }
 
                 $response_payload = [
                     'user_id'       => (int)$user_id,
