@@ -54,7 +54,7 @@ class InstallerCommand
     private function getInstallSql(): string
     {
         return "
-CREATE TYPE interaction_type AS ENUM ('like', 'dislike', 'play', 'skip', 'follow');
+CREATE TYPE interaction_type AS ENUM ('like', 'dislike', 'play', 'skip', 'follow', 'comment');
 
 CREATE TABLE sample_vectors (
     sample_id BIGINT PRIMARY KEY,

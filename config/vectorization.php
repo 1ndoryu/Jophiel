@@ -8,9 +8,9 @@ return [
     /**
      * Define la dimensión total del vector.
      * Es la suma de las dimensiones de todas las características.
-     * BPM (1) + Genero (12) + Emocion (10) + Instrumentos (10) + Tipo (2) = 35
+     * BPM (1) + Genero (20) + Emocion (16) + Instrumentos (18) + Tipo (2) + TagsHash (128) = 185
      */
-    'vector_dimension' => 35,
+    'vector_dimension' => 65 + 128,
 
     /**
      * Características numéricas y su normalización.
@@ -39,7 +39,24 @@ return [
             'drum-and-bass',
             'classical',
             'jazz',
-            'rock'
+            'chill',
+            'witch-house',
+            'hyperpop',
+            'experimental',
+            'cloud-rap',
+            'rock',
+            'phonk',
+            'memphis',
+            'pop',
+            'metal',
+            'reggaeton',
+            'edm',
+            'blues',
+            'soul',
+            'funk',
+            'r&b',
+            'folkloric',
+            'regional',
         ],
         'emocion_es' => [
             'triste',
@@ -51,7 +68,13 @@ return [
             'enérgico',
             'épico',
             'oscuro',
-            'agresivo'
+            'agresivo',
+            'romántico',
+            'relajado',
+            'inspirador',
+            'motivador',
+            'terror',
+            'sereno'
         ],
         'instrumentos' => [
             'guitar',
@@ -63,7 +86,16 @@ return [
             'vocals',
             'percussion',
             'fx',
-            'brass'
+            'brass',
+            'flute',
+            'violin',
+            'trumpet',
+            'cello',
+            'saxophone',
+            'ukulele',
+            'harp',
+            'accordion', 
+            'cowbell',
         ],
         'tipo' => [
             'loop',
@@ -71,5 +103,8 @@ return [
         ],
         // 'tags' se omite intencionadamente aquí por su alta cardinalidad.
         // Se podría añadir en el futuro con una estrategia de embedding más avanzada (Fase 2).
-    ]
+    ],
+
+    // Dimensión de hashing para los tags (Hashing Trick)
+    'hash_dimension' => 128,
 ];

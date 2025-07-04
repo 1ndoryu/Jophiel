@@ -66,10 +66,12 @@ class EventConsumerProcess
             // CORRECCIÓN: Pasar $config al scope de la función anónima con `use`.
             $callback = function ($msg) use ($config, $log_channel) {
                 try {
-                    $this->handleMessage($msg->body);
+                    // Obtiene el nombre exacto del evento desde la routing-key del mensaje
+                    $eventName = method_exists($msg, 'getRoutingKey') ? $msg->getRoutingKey() : ($msg->delivery_info['routing_key'] ?? 'unknown');
+
+                    $this->handleMessage($eventName, $msg->body);
                     $msg->ack(); // Confirma que el mensaje fue procesado.
                 } catch (Throwable $e) {
-                    // Ahora $log_channel y $config están definidos y son accesibles aquí.
                     LogHelper::error($log_channel, 'Error procesando mensaje', [
                         'error' => $e->getMessage(),
                         'trace' => $e->getTraceAsString()
@@ -100,23 +102,34 @@ class EventConsumerProcess
     /**
     * Centraliza el ruteo de mensajes al servicio apropiado.
     */
-    private function handleMessage(string $messageBody): void
+    private function handleMessage(string $eventName, string $messageBody): void
     {
         $log_channel = config('rabbitmq.log_channel', 'rabbitmq-consumer');
-        LogHelper::info($log_channel, 'Mensaje recibido', ['body' => $messageBody]);
 
-        $decoded = json_decode($messageBody, true);
-        if (json_last_error() !== JSON_ERROR_NONE || !isset($decoded['event_name'], $decoded['payload'])) {
-            LogHelper::warning($log_channel, 'Mensaje con formato JSON inválido o incompleto.', ['body' => $messageBody]);
-            return;
+        // Log detallado del mensaje recibido
+        LogHelper::info($log_channel, 'Mensaje recibido', [
+            'event_name' => $eventName,
+            'body'       => $messageBody,
+        ]);
+
+        // Intentamos decodificar el body como JSON para extraer payload
+        $decoded  = json_decode($messageBody, true);
+        $payload  = [];
+
+        if (json_last_error() === JSON_ERROR_NONE) {
+            // Si el productor incluyó la clave "payload", tomamos esa parte, si no, asumimos todo el contenido.
+            $payload = $decoded['payload'] ?? $decoded;
+        } else {
+            // No es JSON válido, registramos advertencia y pasamos el raw como string.
+            LogHelper::warning($log_channel, 'Body de mensaje no es JSON válido, se enviará como raw.', [
+                'event_name' => $eventName,
+            ]);
+            $payload = ['raw_body' => $messageBody];
         }
 
-        $payload = $decoded['payload'];
-        $eventName = $decoded['event_name'];
-    
-        LogHelper::info($log_channel, "Ruteando evento.", ['event_name' => $eventName]);
+        LogHelper::info($log_channel, 'Ruteando evento…', ['event_name' => $eventName]);
 
-        // Delegamos el ruteo al nuevo EventRouter para evitar duplicación de lógica.
+        // Enrutamos independientemente de si el payload traía formato especial o no
         \app\services\EventRouter::route($eventName, $payload);
     }
 

@@ -44,6 +44,12 @@ class VectorizationService
                 $offset++;
             }
         }
+
+        // Posiciones para buckets de hashing de tags (Hashing Trick)
+        if (isset($this->config['hash_dimension'])) {
+            $this->featureMap['tags_hash'] = $offset;
+            $offset += $this->config['hash_dimension'];
+        }
     }
 
     /**
@@ -136,6 +142,19 @@ class VectorizationService
                         $index = $this->featureMap[$featureKey][$term];
                         $vector[$index] = 1.0;
                     }
+                }
+            }
+        }
+
+        // 4. Procesar tags con Hashing Trick
+        if (isset($this->config['hash_dimension']) && isset($metadata['tags']) && is_array($metadata['tags'])) {
+            $hashDim = $this->config['hash_dimension'];
+            $hashOffset = $this->featureMap['tags_hash'] ?? null;
+            if ($hashOffset !== null) {
+                foreach ($metadata['tags'] as $tag) {
+                    $bucket = abs(crc32($tag)) % $hashDim;
+                    $index = $hashOffset + $bucket;
+                    $vector[$index] = 1.0;
                 }
             }
         }

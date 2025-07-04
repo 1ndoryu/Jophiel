@@ -22,7 +22,7 @@ trait ProvidesUserData
     protected function getUserDefinitiveInteractions(int $userId): array
     {
         return UserInteraction::where('user_id', $userId)
-            ->whereIn('interaction_type', ['like', 'dislike'])
+            ->whereIn('interaction_type', ['dislike'])
             ->pluck('sample_id')
             ->all();
     }

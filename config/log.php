@@ -8,7 +8,7 @@ $master_handler = [
     'class' => Monolog\Handler\RotatingFileHandler::class,
     'constructor' => [
         runtime_path() . '/logs/jophiel-master.log', // Archivo de log maestro
-        30, // Mantener 30 archivos de log
+        2, // Mantener 2 archivos de log
         Monolog\Logger::DEBUG, // Loguear todos los niveles
     ],
     'formatter' => [
@@ -30,7 +30,7 @@ return [
                 'class' => Monolog\Handler\RotatingFileHandler::class,
                 'constructor' => [
                     runtime_path() . '/logs/webman.log',
-                    7, //$maxFiles
+                    2, //$maxFiles
                     Monolog\Logger::DEBUG,
                 ],
                 'formatter' => [
@@ -56,7 +56,7 @@ return [
                 'class' => Monolog\Handler\RotatingFileHandler::class,
                 'constructor' => [
                     runtime_path() . '/logs/jophiel-batch.log',
-                    10,
+                    2,
                     Monolog\Logger::DEBUG,
                 ],
                 'formatter' => [
@@ -80,7 +80,7 @@ return [
                 'class' => Monolog\Handler\RotatingFileHandler::class,
                 'constructor' => [
                     runtime_path() . '/logs/jophiel-performance.log',
-                    5,
+                    2,
                     Monolog\Logger::DEBUG,
                 ],
                 'formatter' => [
@@ -104,7 +104,7 @@ return [
                 'class' => Monolog\Handler\RotatingFileHandler::class,
                 'constructor' => [
                     runtime_path() . '/logs/jophiel-command.log',
-                    5,
+                    2,
                     Monolog\Logger::DEBUG,
                 ],
                 'formatter' => [
@@ -128,7 +128,7 @@ return [
                 'class' => Monolog\Handler\RotatingFileHandler::class,
                 'constructor' => [
                     runtime_path() . '/logs/jophiel-quick-update.log',
-                    5,
+                    2,
                     Monolog\Logger::DEBUG,
                 ],
                 'formatter' => [
@@ -176,7 +176,7 @@ return [
                 'class' => Monolog\Handler\RotatingFileHandler::class,
                 'constructor' => [
                     runtime_path() . '/logs/jophiel-rabbitmq.log',
-                    10,
+                    2,
                     Monolog\Logger::DEBUG,
                 ],
                 'formatter' => [
@@ -200,7 +200,7 @@ return [
                 'class' => Monolog\Handler\RotatingFileHandler::class,
                 'constructor' => [
                     runtime_path() . '/logs/jophiel-vectorization.log',
-                    10,
+                    2,
                     Monolog\Logger::DEBUG,
                 ],
                 'formatter' => [
@@ -224,7 +224,7 @@ return [
                 'class' => Monolog\Handler\RotatingFileHandler::class,
                 'constructor' => [
                     runtime_path() . '/logs/jophiel-event-router.log',
-                    5,
+                    2,
                     Monolog\Logger::DEBUG,
                 ],
                 'formatter' => [
@@ -260,6 +260,29 @@ return [
                 ],
             ],
             $master_handler, // También enviar al log maestro
+        ],
+    ],
+    'score-calculation' => [
+        'handlers' => [
+            [
+                'class' => Monolog\Handler\RotatingFileHandler::class,
+                'constructor' => [
+                    runtime_path() . '/logs/jophiel-score-calculation.log',
+                    2,
+                    5,
+                    Monolog\Logger::DEBUG,
+                ],
+                'formatter' => [
+                    'class' => Monolog\Formatter\LineFormatter::class,
+                    'constructor' => [
+                        "[%datetime%] %channel%.%level_name%: %message% %context% %extra%\n",
+                        'Y-m-d H:i:s',
+                        true,
+                        true
+                    ],
+                ],
+            ],
+            $master_handler,
         ],
     ],
 ];

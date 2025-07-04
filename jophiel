@@ -47,6 +47,7 @@ if (!$command) {
     echo "                       Con --users y --samples: ejecuta un benchmark completo (resetea la BD).\n";
     echo "  quick-update:test    Simula un 'like' y mide el tiempo de la actualización rápida del feed.\n";
     echo "  test:events          Ejecuta el comando test:events.\n";
+    echo "  user:recalc          Recalcula completamente el algoritmo para un usuario específico.\n";
     exit(1);
 }
 
@@ -75,6 +76,10 @@ switch ($command) {
 
     case 'test:events':
         (new TestEventsCommand())->run();
+        break;
+
+    case 'user:recalc':
+        (new \app\commands\UserRecalculateCommand())->run($options);
         break;
 
     default:

@@ -74,7 +74,7 @@ class SeedCommand
         // --- Generación de Interacciones ---
         echo "Generando $interactionsCount interacciones de usuarios...\n";
         $interactions = [];
-        $interactionTypes = ['like' => 1.0, 'play' => 0.2, 'skip' => -0.1, 'follow' => 0.8, 'dislike' => -1.0];
+        $interactionTypes = ['like' => 1.0, 'comment' => 1.0, 'play' => 0.2, 'skip' => -0.1, 'follow' => 0.8, 'dislike' => -1.0];
         $interactionKeys = array_keys($interactionTypes);
 
         for ($i = 0; $i < $interactionsCount; $i++) {

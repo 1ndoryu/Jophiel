@@ -67,4 +67,16 @@ class LogHelper
     {
         self::log($channel, Logger::ERROR, $message, $context);
     }
+
+    /**
+     * Helper para logs de nivel DEBUG.
+     *
+     * @param string $channel
+     * @param string $message
+     * @param array $context
+     */
+    public static function debug(string $channel, string $message, array $context = []): void
+    {
+        self::log($channel, Logger::DEBUG, $message, $context);
+    }
 }

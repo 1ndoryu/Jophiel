@@ -11,23 +11,49 @@ use app\services\concerns\ProvidesUserData;
 use Carbon\Carbon;
 use Illuminate\Database\Capsule\Manager as DB;
 use Illuminate\Support\Collection;
+use app\helper\LogHelper;
 
 class QuickUpdateService
 {
     use ProvidesUserData;
 
     private ScoreCalculationService $scoreService;
-    private const SIMILAR_SAMPLES_TO_INJECT = 10;
-    private const FOLLOWED_SAMPLES_TO_INJECT = 15;
-    private const FEED_SIZE = 200;
+    private int $similarSamplesToInject;
+    private int $followedSamplesToInject;
+    private float $tasteUpdateAlpha;
+    private int $feedSize;
+
+    /**
+     * Canal de log para este servicio.
+     */
+    private string $logChannel = 'quick-update';
+
+    /**
+     * Helper para mensajes DEBUG que antes salían por consola.
+     */
+    private function debug(string $message, array $context = []): void
+    {
+        LogHelper::debug($this->logChannel, $message, $context);
+    }
 
     public function __construct()
     {
-        $this->scoreService = new ScoreCalculationService();
+        $this->scoreService         = new ScoreCalculationService();
+        $engineConfig               = config('recommendation.quick_update_engine');
+
+        $this->similarSamplesToInject  = (int) ($engineConfig['similar_samples_to_inject'] ?? 10);
+        $this->followedSamplesToInject = (int) ($engineConfig['followed_samples_to_inject'] ?? 15);
+        $this->tasteUpdateAlpha        = (float) ($engineConfig['taste_update_alpha'] ?? 0.1);
+
+        $this->feedSize = (int) config('recommendation.recommendations.feed_size', 200);
     }
 
     public function handleLike(int $userId, int $sampleId): void
     {
+        $this->debug('Procesando LIKE', [
+            'user_id'   => $userId,
+            'sample_id' => $sampleId,
+        ]);
         $this->runQuickUpdateForPositiveSignal($userId, $sampleId, 'like');
     }
 
@@ -38,18 +64,72 @@ class QuickUpdateService
 
     private function runQuickUpdateForPositiveSignal(int $userId, int $sampleId, string $interactionType): void
     {
-        echo "  [DEBUG] QuickUpdate: Iniciando para {$interactionType} de User {$userId} en Sample {$sampleId}\n";
-        UserInteraction::create([
-            'user_id' => $userId, 'sample_id' => $sampleId,
-            'interaction_type' => $interactionType, 'weight' => 1.0,
+        $this->debug('QuickUpdate iniciado', [
+            'interaction_type' => $interactionType,
+            'user_id'         => $userId,
+            'sample_id'       => $sampleId,
+        ]);
+        // Aseguramos que no se creen duplicados de interacciones definitivas.
+        // Si ya existe un "like" (o cualquier otra interacción positiva definitiva que queramos tratar así),
+        // simplemente actualizamos el peso; en caso contrario se inserta un nuevo registro.
+        UserInteraction::updateOrCreate([
+            'user_id'          => $userId,
+            'sample_id'        => $sampleId,
+            'interaction_type' => $interactionType,
+        ], [
+            'weight' => 1.0,
+        ]);
+        $this->debug('Interacción registrada', [
+            'user_id'          => $userId,
+            'sample_id'        => $sampleId,
+            'interaction_type' => $interactionType,
         ]);
 
         $userProfile = UserTasteProfile::find($userId);
         $interactedSample = SampleVector::find($sampleId);
 
-        if (!$userProfile || !$interactedSample) {
-            echo "  [DEBUG] QuickUpdate: No se encontró perfil de usuario o sample. Abortando.\n";
+        // Si no existe el perfil de gustos, lo creamos con un vector neutro.
+        if (!$userProfile) {
+            $this->debug('Perfil de gustos no encontrado; creando perfil por defecto.', ['user_id' => $userId]);
+            try {
+                $dimension   = config('vectorization.vector_dimension', 35);
+                $userProfile = UserTasteProfile::create([
+                    'user_id'      => $userId,
+                    'taste_vector' => array_fill(0, $dimension, 0.0),
+                ]);
+            } catch (\Throwable $e) {
+                LogHelper::error($this->logChannel, 'No se pudo crear perfil de gustos por defecto.', [
+                    'user_id' => $userId,
+                    'error'   => $e->getMessage(),
+                ]);
+                $userProfile = null;
+            }
+        }
+
+        // Verificación final: si aún no tenemos perfil, abortamos.
+        if (!$userProfile) {
+            $this->debug('No se pudo generar/obtener el perfil de usuario, abortando QuickUpdate.', [
+                'user_id' => $userId,
+            ]);
             return;
+        }
+
+        // Si el vector del sample aún no está disponible (por ejemplo, la vectorización no ha terminado),
+        // no actualizamos el taste profile ni calculamos candidatos, pero SÍ inyectamos el propio sample
+        // al feed para que el usuario vea reflejada su interacción de inmediato.
+        if (!$interactedSample) {
+            $this->debug('Vector del sample no encontrado; inyectando el sample directamente y finalizando QuickUpdate.', [
+                'sample_id' => $sampleId,
+            ]);
+
+            $this->injectIntoFeed($userId, [[
+                'user_id'      => $userId,
+                'sample_id'    => $sampleId,
+                'score'        => 1.0,
+                'generated_at' => Carbon::now()->toDateTimeString(),
+            ]]);
+
+            return; // Salimos porque no podemos continuar sin el vector
         }
 
         // Aseguramos que el vector de gustos del usuario sea un array. Puede venir como JSON string desde la BD.
@@ -62,13 +142,39 @@ class QuickUpdateService
             $interactedSample->vector = json_decode($interactedSample->vector, true) ?? [];
         }
 
+        // === NUEVO: Actualizar el perfil de gustos ===
+        $oldTasteVector = $userTasteVector;
+        $dimension = count($interactedSample->vector);
+        if ($dimension === 0) {
+            $this->debug('Vector del sample vacío; se omite actualización del taste profile');
+        } else {
+            // Garantizar que ambos vectores tengan la misma dimensión rellenando con ceros si falta longitud.
+            for ($i = 0; $i < $dimension; $i++) {
+                $oldVal    = $userTasteVector[$i] ?? 0.0;
+                $sampleVal = $interactedSample->vector[$i] ?? 0.0;
+                $userTasteVector[$i] = (1 - $this->tasteUpdateAlpha) * $oldVal + $this->tasteUpdateAlpha * $sampleVal;
+            }
+            // Persistir cambios
+            $userProfile->taste_vector = $userTasteVector;
+            $userProfile->save();
+
+            // Log antes y después (solo las primeras 10 posiciones para no inundar)
+            $this->debug('Taste profile actualizado', [
+                'user_id' => $userId,
+                'first_10_before' => array_slice($oldTasteVector, 0, 10),
+                'first_10_after'  => array_slice($userTasteVector, 0, 10),
+            ]);
+        }
+
         $candidates = $this->findSimilarSamples($interactedSample);
-        echo "  [DEBUG] QuickUpdate: Se encontraron " . $candidates->count() . " candidatos similares.\n";
+        $this->debug('Candidatos similares encontrados', ['count' => $candidates->count()]);
 
         if ($candidates->isEmpty()) {
             $this->injectIntoFeed($userId, [[
-                'user_id' => $userId, 'sample_id' => $sampleId,
-                'score' => 1.0, 'generated_at' => Carbon::now()->toDateTimeString(),
+                'user_id' => $userId,
+                'sample_id' => $sampleId,
+                'score' => 1.0,
+                'generated_at' => Carbon::now()->toDateTimeString(),
             ]]);
             return;
         }
@@ -78,56 +184,56 @@ class QuickUpdateService
         $newRecommendations = [];
 
         // --- INICIO DE DEPURACIÓN VERBOSA ---
-        echo "  [DEBUG] Iniciando bucle foreach sobre los candidatos...\n";
+        $this->debug('Comienza foreach de candidatos');
         foreach ($candidates as $key => $candidate) {
-            echo "  [DEBUG] Procesando candidato con clave de bucle: $key\n";
-            
+            $this->debug('Procesando candidato', ['loop_key' => $key]);
+
             // 1. VERIFICACIÓN DE TIPO
             if (!is_object($candidate) || !$candidate instanceof \app\model\SampleVector) {
-                echo "  [ERROR] ¡El candidato no es un objeto SampleVector válido! Tipo: " . gettype($candidate) . "\n";
+                $this->debug('Candidato inválido', ['type' => gettype($candidate)]);
                 continue;
             }
-            
-            echo "  [DEBUG] ID del candidato: {$candidate->sample_id}\n";
-            
+
+            $this->debug('ID del candidato', ['candidate_id' => $candidate->sample_id]);
+
             // 2. VERIFICACIÓN DEL VECTOR
             if (!isset($candidate->vector)) {
-                echo "  [ERROR] ¡El vector del candidato no está definido (es null)!\n";
+                $this->debug('Vector del candidato indefinido', ['candidate_id' => $candidate->sample_id]);
                 continue;
             }
             if (!is_array($candidate->vector)) {
-                echo "  [ERROR] ¡El vector del candidato no es un array! Tipo: " . gettype($candidate->vector) . "\n";
+                $this->debug('Vector del candidato no es array', ['type' => gettype($candidate->vector)]);
                 continue;
             }
 
             if ($candidate->sample_id == $sampleId) {
-                echo "  [DEBUG] Saltando candidato: es el mismo que el sample de la interacción.\n";
+                $this->debug('Saltando candidato igual al sample');
                 continue;
             }
 
-            echo "  [DEBUG] Llamando a calculateFinalScore...\n";
+            $this->debug('Llamando a calculateFinalScore');
             $score = $this->scoreService->calculateFinalScore(
                 $userTasteVector,
                 $candidate,
                 $definitiveInteractions,
                 $followedCreators->has($candidate->creator_id)
             );
-            echo "  [DEBUG] Score calculado para candidato {$candidate->sample_id} es {$score}.\n";
+            $this->debug('Score calculado', ['candidate_id' => $candidate->sample_id, 'score' => $score]);
 
             if ($score >= 0) {
-                echo "  [DEBUG] Score es positivo. Añadiendo a recomendaciones.\n";
+                $this->debug('Score positivo, añadiendo a recomendaciones');
                 $newRecommendations[] = ['user_id' => $userId, 'sample_id' => $candidate->sample_id, 'score' => $score, 'generated_at' => Carbon::now()->toDateTimeString()];
             } else {
-                echo "  [DEBUG] Score es negativo. Omitiendo.\n";
+                $this->debug('Score negativo, omitiendo');
             }
         }
-        echo "  [DEBUG] Bucle foreach completado.\n";
+        $this->debug('Foreach completado');
         // --- FIN DE DEPURACIÓN VERBOSA ---
 
-        echo "  [DEBUG] QuickUpdate: Se generaron " . count($newRecommendations) . " nuevas recomendaciones con score positivo.\n";
+        $this->debug('Nuevas recomendaciones generadas', ['count' => count($newRecommendations)]);
 
         if (empty($newRecommendations)) {
-             echo "  [DEBUG] No se generaron nuevas recomendaciones, retornando.\n";
+            $this->debug('No se generaron nuevas recomendaciones, retornando');
             return;
         }
 
@@ -137,15 +243,15 @@ class QuickUpdateService
     public function handleFollow(int $followerId, int $followedUserId): void
     {
         // El código de este método no se ha modificado para mantener el foco en el primer error (like)
-        echo "  [DEBUG] QuickUpdate: Iniciando para follow de User {$followerId} a User {$followedUserId}\n";
+        $this->debug('QuickUpdate follow', ['follower_id' => $followerId, 'followed_user_id' => $followedUserId]);
         UserFollow::updateOrCreate(['user_id' => $followerId, 'followed_user_id' => $followedUserId]);
         $followerProfile = UserTasteProfile::find($followerId);
         if (!$followerProfile) return;
         $followerTasteVector = is_array($followerProfile->taste_vector)
             ? $followerProfile->taste_vector
             : json_decode($followerProfile->taste_vector, true) ?? [];
-        $candidates = SampleVector::where('creator_id', $followedUserId)->latest('created_at')->limit(self::FOLLOWED_SAMPLES_TO_INJECT * 2)->get();
-        echo "  [DEBUG] QuickUpdate: Se encontraron " . $candidates->count() . " samples del usuario seguido.\n";
+        $candidates = SampleVector::where('creator_id', $followedUserId)->latest('created_at')->limit($this->followedSamplesToInject * 2)->get();
+        $this->debug('Samples del seguido encontrados', ['count' => $candidates->count()]);
         if ($candidates->isEmpty()) return;
         $definitiveInteractions = $this->getUserDefinitiveInteractions($followerId);
         $newRecommendations = [];
@@ -166,63 +272,158 @@ class QuickUpdateService
                 $newRecommendations[] = ['user_id' => $followerId, 'sample_id' => $latestSample->sample_id, 'score' => 0.5, 'generated_at' => Carbon::now()->toDateTimeString()];
             }
         }
-        $this->injectIntoFeed($followerId, array_slice($newRecommendations, 0, self::FOLLOWED_SAMPLES_TO_INJECT));
+        $this->injectIntoFeed($followerId, array_slice($newRecommendations, 0, $this->followedSamplesToInject));
     }
 
     private function injectIntoFeed(int $userId, array $newRecommendations): void
     {
-        echo "  [DEBUG] injectIntoFeed: Entrando para User {$userId} con " . count($newRecommendations) . " recs nuevas.\n";
+        $this->debug('injectIntoFeed: inicio', ['user_id' => $userId, 'count_new' => count($newRecommendations)]);
         if (empty($newRecommendations)) return;
+
+        // Nuevo: capturar conteo actual del feed ANTES de modificarlo
+        $feedCountBefore = UserFeedRecommendation::where('user_id', $userId)->count();
+
         try {
             DB::transaction(function () use ($userId, $newRecommendations) {
                 $newSampleIds = array_column($newRecommendations, 'sample_id');
                 $currentFeed = UserFeedRecommendation::where('user_id', $userId)->whereNotIn('sample_id', $newSampleIds)->orderBy('score', 'desc')->get()->toArray();
                 $combinedFeed = array_merge($newRecommendations, $currentFeed);
                 usort($combinedFeed, fn($a, $b) => $b['score'] <=> $a['score']);
-                $finalFeed = array_slice($combinedFeed, 0, self::FEED_SIZE);
-                echo "  [DEBUG] injectIntoFeed: Feed final combinado con " . count($finalFeed) . " elementos.\n";
+
+                $this->debug('IDs insertados', ['sample_ids' => $newSampleIds]);
+
+                $finalFeed = array_slice($combinedFeed, 0, $this->feedSize);
+                $this->debug('Feed combinado', ['elements' => count($finalFeed)]);
                 UserFeedRecommendation::where('user_id', $userId)->delete();
                 if (!empty($finalFeed)) {
                     $inserted = UserFeedRecommendation::insert($finalFeed);
-                    echo "  [DEBUG] injectIntoFeed: Resultado de la operación de BD 'insert' fue: " . ($inserted ? 'true' : 'false') . ".\n";
+                    $this->debug('IDs finalFeed', ['sample_ids' => array_column($finalFeed, 'sample_id')]);
+                    $this->debug('Resultado insert', ['success' => (bool)$inserted]);
                 }
             });
             $countAfter = UserFeedRecommendation::where('user_id', $userId)->count();
-            echo "  [DEBUG] injectIntoFeed: Conteo final en BD (post-transacción) es: {$countAfter}.\n";
+
+            // Nuevo log con el diff inmediato
+            $this->debug('Feed modificado', [
+                'feed_count_before' => $feedCountBefore,
+                'feed_count_after'  => $countAfter,
+                'delta'             => $countAfter - $feedCountBefore,
+            ]);
+            $this->debug('Conteo final post-transacción', ['count' => $countAfter]);
         } catch (\Throwable $e) {
-            echo "\033[31m";
-            echo "  [DEBUG] EXCEPCION CATASTROFICA en injectIntoFeed:\n";
-            echo "  [DEBUG] Mensaje: " . $e->getMessage() . "\n";
-            echo "  [DEBUG] Archivo: " . $e->getFile() . " Linea: " . $e->getLine() . "\n";
-            echo "\033[0m";
+            LogHelper::error($this->logChannel, 'Excepción en injectIntoFeed', [
+                'message' => $e->getMessage(),
+                'file'    => $e->getFile(),
+                'line'    => $e->getLine(),
+                'trace'   => $e->getTraceAsString(),
+            ]);
         }
     }
 
     public function handleUnlike(int $userId, int $sampleId): void
     {
-        UserInteraction::create(['user_id' => $userId, 'sample_id' => $sampleId, 'interaction_type' => 'dislike', 'weight' => -1.0]);
-        UserFeedRecommendation::where('user_id', $userId)->where('sample_id', $sampleId)->delete();
+        $this->debug('Procesando UNLIKE (remover like)', [
+            'user_id'   => $userId,
+            'sample_id' => $sampleId,
+        ]);
+
+        // 1) Eliminamos cualquier registro existente de 'like' para este usuario y sample.
+        $deletedInteractions = UserInteraction::where('user_id', $userId)
+            ->where('sample_id', $sampleId)
+            ->where('interaction_type', 'like')
+            ->delete();
+
+        $this->debug('Like eliminado de user_interactions', [
+            'deleted_rows' => $deletedInteractions,
+            'user_id'      => $userId,
+            'sample_id'    => $sampleId,
+        ]);
+
+        // 2) Revertir la actualización realizada al taste_vector en el último LIKE
+        $userProfile = UserTasteProfile::find($userId);
+        $sampleVectorModel = SampleVector::find($sampleId);
+
+        if ($userProfile && $sampleVectorModel && $this->tasteUpdateAlpha > 0 && $this->tasteUpdateAlpha < 1) {
+            $userTasteVector = is_array($userProfile->taste_vector)
+                ? $userProfile->taste_vector
+                : json_decode($userProfile->taste_vector, true) ?? [];
+
+            $sampleVector = is_array($sampleVectorModel->vector)
+                ? $sampleVectorModel->vector
+                : json_decode($sampleVectorModel->vector, true) ?? [];
+
+            $dimension = min(count($userTasteVector), count($sampleVector));
+            if ($dimension > 0) {
+                for ($i = 0; $i < $dimension; $i++) {
+                    $currentVal = $userTasteVector[$i] ?? 0.0;
+                    $sampleVal  = $sampleVector[$i] ?? 0.0;
+                    // Fórmula inversa del update aplicado en handleLike:
+                    // new = (1-alpha)*old + alpha*sample  => old = (new - alpha*sample)/(1-alpha)
+                    $reverted   = ($currentVal - $this->tasteUpdateAlpha * $sampleVal) / (1 - $this->tasteUpdateAlpha);
+                    $userTasteVector[$i] = $reverted;
+                }
+
+                $userProfile->taste_vector = $userTasteVector;
+                $userProfile->save();
+
+                $this->debug('Taste profile revertido tras UNLIKE', [
+                    'user_id' => $userId,
+                    'first_10_after_revert' => array_slice($userTasteVector, 0, 10),
+                ]);
+            }
+        } else {
+            $this->debug('No se pudo revertir el taste profile: datos insuficientes', [
+                'has_user_profile' => (bool)$userProfile,
+                'has_sample_vector' => (bool)$sampleVectorModel,
+            ]);
+        }
+
+        // 3) Eliminamos temporalmente el sample del feed actual del usuario para reflejar el cambio inmediato.
+        $deleted = UserFeedRecommendation::where('user_id', $userId)
+            ->where('sample_id', $sampleId)
+            ->delete();
+
+        $this->debug('Sample eliminado temporalmente del feed', [
+            'deleted_rows' => $deleted,
+        ]);
     }
 
     public function handleUnfollow(int $followerId, int $unfollowedUserId): void
     {
         UserFollow::where('user_id', $followerId)->where('followed_user_id', $unfollowedUserId)->delete();
         $sampleIdsToRemove = SampleVector::where('creator_id', $unfollowedUserId)->pluck('sample_id');
-        if ($sampleIdsToRemove->isEmpty()) { return; }
+        if ($sampleIdsToRemove->isEmpty()) {
+            return;
+        }
         UserFeedRecommendation::where('user_id', $followerId)->whereIn('sample_id', $sampleIdsToRemove)->delete();
     }
 
     private function findSimilarSamples(SampleVector $sample): Collection
     {
         $vectorData = is_array($sample->vector) ? $sample->vector : json_decode($sample->vector, true);
-        $hotIndices = array_keys(array_filter($vectorData, fn($val) => $val > 0.9));
-        if (empty($hotIndices)) { return collect(); }
+        $hotIndices = array_keys(array_filter($vectorData, fn($val) => $val > 0));
+        if (empty($hotIndices)) {
+            return SampleVector::inRandomOrder()->limit($this->similarSamplesToInject)->get();
+        }
         $query = SampleVector::query()->where('sample_id', '!=', $sample->sample_id);
         $query->where(function ($q) use ($hotIndices) {
             foreach ($hotIndices as $index) {
-                $q->orWhereRaw("CAST (vector->>" . (int)$index . " AS numeric) > 0.9");
+                $q->orWhereRaw("CAST (vector->>" . (int)$index . " AS numeric) > 0");
             }
         });
-        return $query->inRandomOrder()->limit(self::SIMILAR_SAMPLES_TO_INJECT * 2)->get();
+        $similar = $query->inRandomOrder()->limit($this->similarSamplesToInject)->get();
+
+        // Fallback: si no se encontraron suficientes similares, rellenamos con aleatorios
+        if ($similar->count() < $this->similarSamplesToInject) {
+            $missing = $this->similarSamplesToInject - $similar->count();
+            $additional = SampleVector::where('sample_id', '!=', $sample->sample_id)
+                ->whereNotIn('sample_id', $similar->pluck('sample_id'))
+                ->inRandomOrder()
+                ->limit($missing)
+                ->get();
+            $similar = $similar->concat($additional);
+        }
+
+        return $similar;
     }
 }

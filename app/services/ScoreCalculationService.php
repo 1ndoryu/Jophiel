@@ -13,12 +13,31 @@ use Carbon\Carbon;
 class ScoreCalculationService
 {
     /**
-     * Ponderaciones para cada factor del score.
+     * Parámetros cargados desde config/recommendation.php
      */
-    private const WEIGHT_SIMILARITY = 1.0;
-    private const WEIGHT_FOLLOWING = 0.5;
-    private const WEIGHT_NOVELTY = 0.2;
+    private array $scoreWeights;
+    private float $visibilityFactor;
+    private array $noveltyConfig;
+
+    // Constante preservada para compatibilidad con otros servicios
     public const PENALTY_DEFINITIVE_INTERACTION = -1000.0;
+
+    public function __construct()
+    {
+        $this->scoreWeights    = config('recommendation.score_weights');
+        $this->visibilityFactor = (float) config('recommendation.visibility_factor_definitive_interaction', 0.3);
+        $this->noveltyConfig   = config('recommendation.novelty');
+    }
+
+    private string $logChannel = 'score-calculation';
+
+    /**
+     * Helper rápido para DEBUG.
+     */
+    private function debug(string $message, array $context = []): void
+    {
+        \app\helper\LogHelper::debug($this->logChannel, $message, $context);
+    }
 
     /**
      * Calcula el ScoreFinal para un par usuario-sample.
@@ -35,11 +54,8 @@ class ScoreCalculationService
         array $userDefinitiveInteractions,
         bool $isFollowingCreator
     ): float {
-        // 1. Factor de Penalización: Es lo primero que se revisa para descartar rápidamente.
-        $penaltyFactor = $this->calculatePenaltyFactor($sampleVector->sample_id, $userDefinitiveInteractions);
-        if ($penaltyFactor === self::PENALTY_DEFINITIVE_INTERACTION) {
-            return self::PENALTY_DEFINITIVE_INTERACTION; // Si hay penalización, el score es definitivo y no se calcula nada más.
-        }
+        // 1. ¿El usuario ya ha interactuado de forma definitiva con este sample?
+        $hasDefinitiveInteraction = $this->hasDefinitiveInteraction($sampleVector->sample_id, $userDefinitiveInteractions);
 
         // 2. Factor de Similitud (Coseno)
         $similarityFactor = $this->calculateCosineSimilarity(
@@ -53,10 +69,34 @@ class ScoreCalculationService
         // 4. Factor de Novedad
         $noveltyFactor = $this->calculateNoveltyFactor($sampleVector->created_at);
 
+        // Registro de los factores antes de ponderar
+        $this->debug('Factores calculados', [
+            'sample_id'                => $sampleVector->sample_id,
+            'similarityFactor'         => $similarityFactor,
+            'followingFactor'          => $followingFactor,
+            'noveltyFactor'            => $noveltyFactor,
+            'hasDefinitiveInteraction' => $hasDefinitiveInteraction,
+        ]);
+
         // Fórmula final ponderada
-        $finalScore = ($similarityFactor * self::WEIGHT_SIMILARITY) +
-            ($followingFactor * self::WEIGHT_FOLLOWING) +
-            ($noveltyFactor * self::WEIGHT_NOVELTY);
+        $finalScore = ($similarityFactor * ($this->scoreWeights['similarity'] ?? 1)) +
+            ($followingFactor * ($this->scoreWeights['following'] ?? 0.5)) +
+            ($noveltyFactor * ($this->scoreWeights['novelty'] ?? 0.2));
+
+        // 5. Ajuste de visibilidad si ya hubo interacción definitiva
+        if ($hasDefinitiveInteraction) {
+            $finalScore *= $this->visibilityFactor;
+            $this->debug('Visibilidad reducida por interacción definitiva', [
+                'sample_id'      => $sampleVector->sample_id,
+                'factor'         => $this->visibilityFactor,
+                'adjustedScore'  => $finalScore,
+            ]);
+        }
+
+        $this->debug('ScoreFinal calculado', [
+            'sample_id'  => $sampleVector->sample_id,
+            'finalScore' => $finalScore,
+        ]);
 
         return (float) $finalScore;
     }
@@ -100,31 +140,28 @@ class ScoreCalculationService
     private function calculateNoveltyFactor($creationDate): float
     {
         $createdAt = Carbon::parse($creationDate);
-        $daysOld = $createdAt->diffInDays(Carbon::now());
-        $noveltyPeriod = 30; // Días durante los cuales un sample se considera "nuevo".
+        $hoursOld = $createdAt->diffInHours(Carbon::now());
 
-        if ($daysOld < 0 || $daysOld > $noveltyPeriod) {
+        if ($hoursOld < 0) {
             return 0.0;
         }
 
-        // Decaimiento lineal
-        return 1.0 - ($daysOld / $noveltyPeriod);
+        // Configuración dinámica
+        $halfLifeHours = (int) ($this->noveltyConfig['half_life_hours'] ?? 48);
+        $maxBonus      = (float) ($this->noveltyConfig['max_bonus'] ?? 1.0);
+
+        // Decaimiento exponencial: bonus = max_bonus * 0.5^(t/half_life)
+        $decay = pow(0.5, $hoursOld / $halfLifeHours);
+        return $maxBonus * $decay;
     }
 
     /**
-     * Calcula la penalización si el usuario ya ha interactuado con el sample de forma definitiva.
-     *
-     * @param int $sampleId
-     * @param array $userDefinitiveInteractions
-     * @return float
+     * Determina si el usuario ha interactuado de forma definitiva con el sample.
      */
-    private function calculatePenaltyFactor(int $sampleId, array $userDefinitiveInteractions): float
+    private function hasDefinitiveInteraction(int $sampleId, array $userDefinitiveInteractions): bool
     {
         // Usar un hash map (isset en un array invertido) es más rápido que in_array para listas grandes.
         $interactionsMap = array_flip($userDefinitiveInteractions);
-        if (isset($interactionsMap[$sampleId])) {
-            return self::PENALTY_DEFINITIVE_INTERACTION;
-        }
-        return 0.0;
+        return isset($interactionsMap[$sampleId]);
     }
 }
