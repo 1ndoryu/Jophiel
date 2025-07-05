@@ -7,6 +7,7 @@ use app\model\SampleVector;
 use app\model\UserFeedRecommendation;
 use app\model\UserInteraction;
 use Illuminate\Database\Capsule\Manager as DB;
+use Illuminate\Database\Query\Expression;
 
 /**
  * Servicio para convertir la metadata de un sample en un vector numérico.
@@ -66,6 +67,8 @@ class VectorizationService
         }
 
         $vectorArray = $this->vectorize($metadata);
+        // Generar tsvector para búsqueda de texto
+        $searchTsv = $this->buildSearchTsv($metadata);
 
         $isCreating = !SampleVector::where('sample_id', $metadata['media_id'])->exists();
         LogHelper::info(
@@ -79,7 +82,8 @@ class VectorizationService
             ['sample_id' => $metadata['media_id']],
             [
                 'creator_id' => $metadata['creator_id'],
-                'vector' => $vectorArray
+                'vector' => $vectorArray,
+                'search_tsv' => $searchTsv,
             ]
         );
 
@@ -177,5 +181,46 @@ class VectorizationService
         if ($bpm >= $max) return 1.0;
 
         return ($bpm - $min) / ($max - $min);
+    }
+
+    /**
+     * Construye un Expression con el TSVECTOR ponderado de los campos relevantes.
+     *
+     * @param array $metadata
+     * @return Expression
+     */
+    private function buildSearchTsv(array $metadata): Expression
+    {
+        $weights = config('search.weights');
+
+        $parts = [];
+
+        // Título
+        if (!empty($metadata['title'] ?? '')) {
+            $title = str_replace("'", "''", $metadata['title']);
+            $weight = $weights['title'] ?? 'A';
+            $parts[] = "setweight(to_tsvector('simple', '{$title}'), '{$weight}')";
+        }
+
+        // Arrays de texto
+        $arrayFields = ['tags', 'genero', 'instrumentos'];
+        foreach ($arrayFields as $field) {
+            if (!empty($metadata[$field]) && is_array($metadata[$field])) {
+                $text = str_replace("'", "''", implode(' ', $metadata[$field]));
+                $weight = $weights[$field] ?? 'B';
+                $parts[] = "setweight(to_tsvector('simple', '{$text}'), '{$weight}')";
+            }
+        }
+
+        // Descripción
+        if (!empty($metadata['descripcion'] ?? '')) {
+            $desc = str_replace("'", "''", $metadata['descripcion']);
+            $weight = $weights['descripcion'] ?? 'C';
+            $parts[] = "setweight(to_tsvector('simple', '{$desc}'), '{$weight}')";
+        }
+
+        $expression = count($parts) > 0 ? implode(' || ', $parts) : "to_tsvector('simple', '')";
+
+        return DB::raw($expression);
     }
 }

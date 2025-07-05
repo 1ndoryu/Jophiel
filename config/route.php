@@ -5,11 +5,13 @@ use Webman\Route;
 use app\controller\FeedController;
 use app\controller\SyncController;
 use app\controller\TasteController;
+use app\controller\SearchController;
 
 // Endpoint para que los clientes (como Sword) consuman las recomendaciones.
 Route::get('/v1/feed/{user_id:\d+}', [FeedController::class, 'get']);
 Route::get('/v1/feed/points/{user_id:\d+}', [FeedController::class, 'getWithScores']);
 Route::get('/v1/taste/{user_id:\d+}', [TasteController::class, 'get']);
+Route::get('/v1/search', [SearchController::class, 'search']);
 
 // --- RUTAS DE SINCRONIZACIÓN EXPLÍCITAS ---
 // Cada ruta llama a un método específico, eliminando la ambigüedad.

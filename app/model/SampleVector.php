@@ -22,6 +22,7 @@ class SampleVector extends Model
         'sample_id',
         'creator_id',
         'vector',
+        'search_tsv',
     ];
 
     protected $casts = [

@@ -60,11 +60,13 @@ CREATE TABLE sample_vectors (
     sample_id BIGINT PRIMARY KEY,
     creator_id BIGINT NOT NULL,
     vector JSONB NOT NULL,
+    search_tsv TSVECTOR,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_sample_vectors_vector_gin ON sample_vectors USING GIN (vector);
-COMMENT ON TABLE sample_vectors IS 'Almacena el vector numérico (ADN) de cada sample de audio.';
+CREATE INDEX idx_sample_vectors_search_tsv_gin ON sample_vectors USING GIN (search_tsv);
+COMMENT ON TABLE sample_vectors IS 'Almacena el vector numérico (ADN) de cada sample de audio y su índice de búsqueda textual.';
 
 CREATE TABLE user_taste_profiles (
     user_id BIGINT PRIMARY KEY,
