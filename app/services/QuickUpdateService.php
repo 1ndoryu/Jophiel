@@ -357,10 +357,13 @@ class QuickUpdateService
                 for ($i = 0; $i < $dimension; $i++) {
                     $currentVal = $userTasteVector[$i] ?? 0.0;
                     $sampleVal  = $sampleVector[$i] ?? 0.0;
-                    // Fórmula inversa del update aplicado en handleLike:
-                    // new = (1-alpha)*old + alpha*sample  => old = (new - alpha*sample)/(1-alpha)
-                    $reverted   = ($currentVal - $this->tasteUpdateAlpha * $sampleVal) / (1 - $this->tasteUpdateAlpha);
-                    $userTasteVector[$i] = $reverted;
+                    // Solo revertimos si este índice fue afectado por el LIKE original (sampleVal != 0).
+                    if (abs($sampleVal) > 1e-9) {
+                        // Fórmula inversa del update aplicado en handleLike:
+                        // new = (1-alpha)*old + alpha*sample  => old = (new - alpha*sample)/(1-alpha)
+                        $reverted = ($currentVal - $this->tasteUpdateAlpha * $sampleVal) / (1 - $this->tasteUpdateAlpha);
+                        $userTasteVector[$i] = $reverted;
+                    }
                 }
 
                 $userProfile->taste_vector = $userTasteVector;
